@@ -74,13 +74,12 @@ builder.Services.AddHttpClient<IAiService, DeepSeekService>(client =>
     client.Timeout = TimeSpan.FromSeconds(120);
 });
 
-// CORS for the Vite development server.
-var frontendOrigin = builder.Configuration["Cors:FrontendOrigin"] ?? "http://localhost:5173";
-frontendOrigin = Environment.GetEnvironmentVariable("FRONTEND_ORIGIN") ?? frontendOrigin;
+// CORS for the frontend app. Use FRONTEND_ORIGINS for comma-separated production/local origins.
+var frontendOrigins = GetFrontendOrigins(builder.Configuration);
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins(frontendOrigin)
+        policy.WithOrigins(frontendOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials());
@@ -154,6 +153,20 @@ static void ConfigureRenderPort(WebApplicationBuilder builder)
     if (string.IsNullOrWhiteSpace(port)) return;
 
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
+static string[] GetFrontendOrigins(IConfiguration cfg)
+{
+    var configured = Environment.GetEnvironmentVariable("FRONTEND_ORIGINS")
+        ?? Environment.GetEnvironmentVariable("FRONTEND_ORIGIN")
+        ?? cfg["Cors:FrontendOrigin"]
+        ?? "http://localhost:5173";
+
+    return configured
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(origin => !string.IsNullOrWhiteSpace(origin))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 }
 
 static string FindDotEnv()

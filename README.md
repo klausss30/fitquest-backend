@@ -39,7 +39,7 @@ AI_PROVIDER=DeepSeek
 AI_API_KEY=your_api_key_here
 AI_BASE_URL=https://api.deepseek.com
 AI_MODEL=deepseek-v4-flash
-FRONTEND_ORIGIN=http://localhost:5173
+FRONTEND_ORIGINS=http://localhost:5173
 ```
 
 Run the API:
@@ -103,6 +103,7 @@ Local SQLite files are ignored by Git.
 | `AI_BASE_URL` | AI API base URL. |
 | `AI_MODEL` | Model name, currently `deepseek-v4-flash`. |
 | `FRONTEND_ORIGIN` | Allowed frontend origin for CORS. |
+| `FRONTEND_ORIGINS` | Comma-separated allowed frontend origins. Prefer this for production. |
 | `PORT` | Optional local port override. Render sets this automatically. |
 
 ## Authentication
@@ -346,10 +347,16 @@ AI_PROVIDER=DeepSeek
 AI_API_KEY=replace_with_your_ai_key
 AI_BASE_URL=https://api.deepseek.com
 AI_MODEL=deepseek-v4-flash
-FRONTEND_ORIGIN=https://your-frontend-domain.example
+FRONTEND_ORIGINS=https://www.fitquest.co.nz,https://fitquest.co.nz
 ```
 
 Render sets `PORT` automatically. The API listens on that port in production.
+
+Frontend API base URL should include `/api`:
+
+```env
+VITE_API_BASE_URL=https://your-render-service.onrender.com/api
+```
 
 ## Build
 
