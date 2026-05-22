@@ -13,11 +13,13 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly JwtTokenService _tokens;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(AppDbContext db, JwtTokenService tokens)
+    public AuthController(AppDbContext db, JwtTokenService tokens, ILogger<AuthController> logger)
     {
         _db = db;
         _tokens = tokens;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -32,8 +34,10 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "请输入有效的邮箱地址" });
         if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 6)
             return BadRequest(new { error = "密码不能少于 6 位" });
+        _logger.LogInformation("Register validation passed");
         if (await _db.Users.AnyAsync(x => x.Email == email, ct))
             return BadRequest(new { error = "该邮箱已注册" });
+        _logger.LogInformation("Register email uniqueness check passed");
 
         var user = new User
         {
@@ -41,14 +45,19 @@ public class AuthController : ControllerBase
             Email = email,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
         };
+        _logger.LogInformation("Register password hashed");
 
         _db.Users.Add(user);
         await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Register user saved with id {UserId}", user.Id);
+
+        var token = _tokens.CreateToken(user);
+        _logger.LogInformation("Register token created for user {UserId}", user.Id);
 
         return Ok(new
         {
             user = user.ToDto(),
-            token = _tokens.CreateToken(user),
+            token,
         });
     }
 

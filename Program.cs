@@ -35,7 +35,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         ValidatePostgresConnectionString(connectionString);
         options.UseNpgsql(ToNpgsqlConnectionString(connectionString), npgsqlOptions =>
         {
-            npgsqlOptions.CommandTimeout(120);
+            npgsqlOptions.CommandTimeout(60);
             npgsqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null);
         });
         return;
@@ -211,7 +211,9 @@ static string ToNpgsqlConnectionString(string connectionString)
         Username = Uri.UnescapeDataString(userInfo.ElementAtOrDefault(0) ?? ""),
         Password = Uri.UnescapeDataString(userInfo.ElementAtOrDefault(1) ?? ""),
         SslMode = SslMode.Require,
-        Pooling = true,
+        Pooling = false,
+        Timeout = 15,
+        CommandTimeout = 60,
     };
 
     return builder.ConnectionString;
