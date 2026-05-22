@@ -1,0 +1,15 @@
+bin/
+obj/
+.DS_Store
+.env
+.env.*
+!.env.example
+appsettings.json
+appsettings.Development.json
+*.log
+*.user
+.vs/
+.idea/
+*.db
+*.db-shm
+*.db-wal
