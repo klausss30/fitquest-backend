@@ -1,0 +1,14 @@
+bin/
+obj/
+.git/
+.github/
+.DS_Store
+.env
+.env.*
+!.env.example
+appsettings.json
+appsettings.Development.json
+*.db
+*.db-shm
+*.db-wal
+*.log

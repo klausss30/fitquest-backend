@@ -332,12 +332,31 @@ Returns a short motivational message for the weekly training page.
 
 SQLite is fine for local development, but it is not recommended for production on Render or similar platforms. Use PostgreSQL for persistent production data.
 
+Render does not need a native .NET runtime for this project. Deploy it as a Docker web service using the included `Dockerfile`.
+
 Recommended production setup:
 
 - Set `DATABASE_PROVIDER=postgres`.
 - Set `DATABASE_URL` to a PostgreSQL connection string.
 - Store `JWT_SECRET` and `AI_API_KEY` as environment variables.
 - Do not commit `.env`, SQLite database files, or real API keys.
+
+Render environment variables:
+
+```env
+DATABASE_PROVIDER=postgres
+DATABASE_URL=postgresql://user:password@host:6543/postgres
+JWT_SECRET=replace_with_a_long_random_secret
+JWT_ISSUER=FitQuest.Api
+JWT_AUDIENCE=FitQuest.Client
+AI_PROVIDER=DeepSeek
+AI_API_KEY=replace_with_your_ai_key
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL=deepseek-v4-flash
+FRONTEND_ORIGIN=https://your-frontend-domain.example
+```
+
+Render sets `PORT` automatically. The API listens on that port in production.
 
 ## Build
 

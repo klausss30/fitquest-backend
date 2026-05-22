@@ -10,6 +10,7 @@ using Npgsql;
 LoadDotEnv();
 
 var builder = WebApplication.CreateBuilder(args);
+ConfigureRenderPort(builder);
 
 // Service registration
 builder.Services.AddControllers()
@@ -147,6 +148,14 @@ static void LoadDotEnv()
         if (Environment.GetEnvironmentVariable(key) is null)
             Environment.SetEnvironmentVariable(key, value);
     }
+}
+
+static void ConfigureRenderPort(WebApplicationBuilder builder)
+{
+    var port = Environment.GetEnvironmentVariable("PORT");
+    if (string.IsNullOrWhiteSpace(port)) return;
+
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 }
 
 static string FindDotEnv()
