@@ -164,6 +164,7 @@ static string[] GetFrontendOrigins(IConfiguration cfg)
 
     return configured
         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(origin => origin.Trim().TrimEnd('/'))
         .Where(origin => !string.IsNullOrWhiteSpace(origin))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
