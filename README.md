@@ -103,14 +103,7 @@ Local SQLite files are ignored by Git.
 | `AI_BASE_URL` | AI API base URL. |
 | `AI_MODEL` | Model name, currently `deepseek-v4-flash`. |
 | `FRONTEND_ORIGIN` | Allowed frontend origin for CORS. |
-
-Legacy DeepSeek variables are also supported:
-
-```env
-DEEPSEEK_API_KEY=your_api_key_here
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
+| `PORT` | Optional local port override. Render sets this automatically. |
 
 ## Authentication
 

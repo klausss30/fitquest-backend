@@ -26,9 +26,9 @@ public class DeepSeekService : IAiService
         _http = http;
         _logger = logger;
         _provider = GetConfigValue(cfg, "Provider", "AI_PROVIDER") ?? "DeepSeek";
-        _apiKey = GetConfigValue(cfg, "ApiKey", "AI_API_KEY", "DEEPSEEK_API_KEY")
+        _apiKey = GetConfigValue(cfg, "ApiKey", "AI_API_KEY")
             ?? throw new InvalidOperationException("Ai:ApiKey is not configured.");
-        _model = GetConfigValue(cfg, "Model", "AI_MODEL", "DEEPSEEK_MODEL") ?? "deepseek-v4-flash";
+        _model = GetConfigValue(cfg, "Model", "AI_MODEL") ?? "deepseek-v4-flash";
     }
 
     public string Provider => _provider;
@@ -338,7 +338,7 @@ public class DeepSeekService : IAiService
 
     private static string? GetConfigValue(IConfiguration cfg, string key, params string[] envNames)
     {
-        var configured = cfg[$"Ai:{key}"] ?? cfg[$"DeepSeek:{key}"];
+        var configured = cfg[$"Ai:{key}"];
         if (!string.IsNullOrWhiteSpace(configured)) return configured;
 
         foreach (var envName in envNames)

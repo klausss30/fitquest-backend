@@ -68,9 +68,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddHttpClient<IAiService, DeepSeekService>(client =>
 {
     var baseUrl = builder.Configuration["Ai:BaseUrl"]
-        ?? builder.Configuration["DeepSeek:BaseUrl"]
         ?? Environment.GetEnvironmentVariable("AI_BASE_URL")
-        ?? Environment.GetEnvironmentVariable("DEEPSEEK_BASE_URL")
         ?? "https://api.deepseek.com";
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(120);
@@ -114,15 +112,15 @@ app.MapControllers();
 app.MapGet("/health", (IConfiguration cfg) => Results.Ok(new
 {
     status = "ok",
-    provider = cfg["Ai:Provider"] ?? cfg["DeepSeek:Provider"] ?? "DeepSeek",
-    model = cfg["Ai:Model"] ?? cfg["DeepSeek:Model"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_MODEL"),
+    provider = cfg["Ai:Provider"] ?? Environment.GetEnvironmentVariable("AI_PROVIDER") ?? "DeepSeek",
+    model = cfg["Ai:Model"] ?? Environment.GetEnvironmentVariable("AI_MODEL"),
     ai_configured = HasAiApiKey(cfg)
 }));
 app.MapGet("/api/health", (IConfiguration cfg) => Results.Ok(new
 {
     status = "ok",
-    provider = cfg["Ai:Provider"] ?? cfg["DeepSeek:Provider"] ?? "DeepSeek",
-    model = cfg["Ai:Model"] ?? cfg["DeepSeek:Model"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_MODEL"),
+    provider = cfg["Ai:Provider"] ?? Environment.GetEnvironmentVariable("AI_PROVIDER") ?? "DeepSeek",
+    model = cfg["Ai:Model"] ?? Environment.GetEnvironmentVariable("AI_MODEL"),
     ai_configured = HasAiApiKey(cfg)
 }));
 
@@ -177,9 +175,7 @@ static bool HasAiApiKey(IConfiguration cfg)
     var values = new[]
     {
         cfg["Ai:ApiKey"],
-        cfg["DeepSeek:ApiKey"],
         Environment.GetEnvironmentVariable("AI_API_KEY"),
-        Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY"),
     };
 
     return values.Any(value => !string.IsNullOrWhiteSpace(value));
