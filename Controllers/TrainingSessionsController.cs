@@ -30,7 +30,6 @@ public class TrainingSessionsController : ControllerBase
         if (validationError is not null) return BadRequest(new { error = validationError });
 
         var userId = this.CurrentUserId();
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
         var session = new TrainingSession
         {
@@ -42,12 +41,8 @@ public class TrainingSessionsController : ControllerBase
             AiNote = request.AiNote,
         };
 
-        _db.TrainingSessions.Add(session);
-        await _db.SaveChangesAsync(ct);
-
         var exercises = request.Exercises.Select((exercise, index) => new SessionExercise
         {
-            SessionId = session.Id,
             ExerciseName = exercise.ExerciseName.Trim(),
             Category = Normalize(exercise.Category),
             Sets = exercise.Sets,
@@ -58,9 +53,9 @@ public class TrainingSessionsController : ControllerBase
             SortOrder = index + 1,
         }).ToList();
 
-        _db.SessionExercises.AddRange(exercises);
+        session.Exercises = exercises;
+        _db.TrainingSessions.Add(session);
         await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         return Ok(new
         {
