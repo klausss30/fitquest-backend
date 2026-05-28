@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+    image: fitquest-api:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 8080
+      DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-Data Source=/app/data/fitness.db}
+    volumes:
+      - fitquest-data:/app/data
+      - fitquest-keys:/root/.aspnet/DataProtection-Keys
+    ports:
+      - "8080:8080"
+    expose:
+      - "8080"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - quick-tunnel
+    depends_on:
+      - api
+    command: tunnel --no-autoupdate --url http://api:8080
+
+volumes:
+  fitquest-data:
+  fitquest-keys:

@@ -14,7 +14,7 @@ The backend is designed around one important product decision: AI-generated plan
 - Weekly planning endpoints that return training direction without prematurely writing records.
 - User-scoped data access across training history and session detail endpoints.
 - SQLite support for local development and PostgreSQL/Supabase support for production.
-- Docker-based deployment for Render.
+- Docker Compose deployment with Cloudflare Tunnel support.
 
 ## Tech Stack
 
@@ -189,6 +189,8 @@ AI_API_KEY=your_api_key_here
 AI_BASE_URL=https://api.deepseek.com
 AI_MODEL=deepseek-v4-flash
 FRONTEND_ORIGINS=http://localhost:5173
+PORT=3001
+CLOUDFLARE_TUNNEL_TOKEN=replace_with_cloudflare_tunnel_token
 ```
 
 Run the API:
@@ -219,10 +221,75 @@ GET /api/health
 | `FRONTEND_ORIGIN` | Single allowed frontend origin for CORS. |
 | `FRONTEND_ORIGINS` | Comma-separated allowed frontend origins. Prefer this in production. |
 | `PORT` | Optional local port override. Render sets this automatically. |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Token for a Cloudflare named tunnel when running with Docker Compose. |
 
 ## Production Deployment
 
-The project includes a `Dockerfile` for Render deployment. Render does not need a native .NET runtime option; deploy it as a Docker web service.
+The project includes a `Dockerfile` and `docker-compose.yml` for container deployment.
+
+### Docker Compose + Cloudflare Tunnel
+
+Edit `.env` and set:
+
+- `JWT_SECRET` to a long random value.
+- `AI_API_KEY` to your DeepSeek-compatible API key.
+- `FRONTEND_ORIGINS` to your frontend origin.
+- `CLOUDFLARE_TUNNEL_TOKEN` to the token from a Cloudflare named tunnel.
+
+Build and run the API:
+
+```bash
+docker compose up -d --build api
+```
+
+Check the API locally through Docker:
+
+```bash
+curl http://localhost:8080/api/health
+docker compose logs -f api
+```
+
+For a temporary Cloudflare URL without a token, use the quick tunnel profile:
+
+```bash
+docker compose --profile quick-tunnel up -d --build api cloudflared-quick
+docker compose logs -f cloudflared-quick
+```
+
+For a production Cloudflare named tunnel, open Cloudflare Zero Trust:
+
+1. Create a tunnel.
+2. Choose Docker as the connector.
+3. Add a public hostname.
+4. Set the service URL to:
+
+```text
+http://api:8080
+```
+
+Then run the API and tunnel:
+
+```bash
+docker compose up -d --build
+```
+
+Check the tunnel connector:
+
+```bash
+docker compose logs -f cloudflared
+```
+
+Stop it:
+
+```bash
+docker compose down
+```
+
+The default compose setup uses SQLite stored in a Docker volume at `/app/data/fitness.db`. For PostgreSQL or Supabase, set `DATABASE_PROVIDER=postgres` and replace `DATABASE_URL` in `.env`.
+
+### Render
+
+Render does not need a native .NET runtime option; deploy it as a Docker web service.
 
 Recommended Render environment variables:
 
