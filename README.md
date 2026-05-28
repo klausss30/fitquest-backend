@@ -1,54 +1,57 @@
 # FitQuest Backend
 
-FitQuest is the backend API for an AI-powered fitness coaching app. It handles authentication, user profiles, AI-generated workout planning, completed training history, weekly training direction, and short coach-style messages.
+FitQuest Backend is the API service for an AI-powered fitness coaching app. It handles authentication, user profiles, AI-generated workout recommendations, completed training history, weekly training direction, and short coach-style messages.
 
-The backend is designed around one important product decision: AI-generated plans are treated as temporary recommendations. A workout is only persisted after the user explicitly completes and saves it. This keeps training history aligned with what the user actually did, instead of mixing suggestions with real records.
+The key product decision is that AI-generated plans are treated as temporary recommendations. A workout is only persisted after the user completes and saves it, so training history reflects what the user actually did rather than what the AI suggested.
 
-## Highlights
+## Key Features
 
-- JWT-based authentication with BCrypt password hashing.
-- User profile support for training level, goal, gender, language, height, and weight.
-- AI workout generation and adjustment using a DeepSeek-compatible chat completions API.
-- Language-aware AI responses through `Accept-Language` and profile language preference.
+- JWT authentication with BCrypt password hashing.
+- User profile management for training level, goal, gender, language, height, and weight.
+- AI workout generation and adjustment through a DeepSeek-compatible chat completions API.
+- Language-aware AI responses using `Accept-Language` and stored profile preference.
 - Completed workout persistence with session-level and exercise-level records.
-- Weekly planning endpoints that return training direction without prematurely writing records.
-- User-scoped data access across training history and session detail endpoints.
-- SQLite support for local development and PostgreSQL/Supabase support for production.
+- Weekly training direction without prematurely writing suggested sessions to history.
+- User-scoped queries across protected endpoints.
+- SQLite for local development and PostgreSQL/Supabase for production.
 - Docker Compose deployment with Cloudflare Tunnel support.
 
 ## Tech Stack
 
 - .NET 10 / ASP.NET Core Web API
 - Entity Framework Core
-- SQLite for local development
-- PostgreSQL/Supabase for production
-- JWT authentication
+- SQLite
+- PostgreSQL / Supabase
+- JWT bearer authentication
 - BCrypt password hashing
-- DeepSeek-compatible chat completions API
-- Docker
+- DeepSeek-compatible AI API
+- Docker / Docker Compose
+- Cloudflare Tunnel
 
-## Architecture Notes
-
-FitQuest keeps the frontend thin and routes all sensitive operations through the backend:
+## Architecture
 
 ```text
-Client
+Frontend
   -> ASP.NET Core API
-    -> Supabase/PostgreSQL
+    -> PostgreSQL/Supabase or SQLite
     -> AI provider
 ```
 
-The frontend never talks directly to the database or AI provider. API keys, JWT signing secrets, and database credentials are stored as environment variables on the server.
+The frontend never talks directly to the database or AI provider. API keys, JWT signing secrets, CORS origins, database connections, and AI provider settings are controlled through environment variables.
 
-Authentication is handled with signed JWTs. Protected endpoints derive the current user from the token and filter database queries by that user ID. The API does not trust user IDs from the client for training history access.
+Protected endpoints derive the current user from the JWT and scope database queries by that user ID. The API does not trust user IDs supplied by the client for training history access.
 
-AI requests are built from profile data and recent completed training history. User names and emails are not included in prompts. AI call metadata is stored in `ai_plan_requests` to support debugging.
+## Engineering Highlights
 
-For production database access, the API supports Supabase/PostgreSQL through Npgsql. When using Supabase session pooler, client-side Npgsql pooling is disabled to avoid double-pooling behavior and long-running request hangs.
+- Designed AI plans as temporary recommendations so generated workouts do not pollute completed training history.
+- Implemented JWT authentication and user-scoped data access to prevent cross-account reads.
+- Added PostgreSQL/Supabase support for production while keeping SQLite available for local development.
+- Converted PostgreSQL URI connection strings into Npgsql connection strings and disabled client-side pooling for Supabase session pooler usage.
+- Added database retry behavior and schema initialization for production startup.
+- Kept the backend environment-driven for secrets, CORS, database configuration, AI provider configuration, and deployment ports.
+- Containerized the API with Docker Compose and exposed it through Cloudflare Tunnel.
 
-The completed-training write path saves the session and its exercises together through EF Core relationship tracking. This keeps the API simple while avoiding user-initiated transactions that conflict with retrying execution strategies.
-
-## Core Data Model
+## Data Model
 
 Main tables:
 
@@ -60,70 +63,30 @@ Main tables:
 
 Training plans generated by AI are not stored as completed sessions. The client must call `POST /api/training-sessions` after the user finishes a workout.
 
-## API Overview
+## API Summary
 
-### Authentication
+Authentication:
 
 ```http
 POST /api/auth/register
 POST /api/auth/login
 ```
 
-Both endpoints return:
-
-```json
-{
-  "user": {
-    "id": 1,
-    "name": "Klaus",
-    "email": "klaus@example.com"
-  },
-  "token": "jwt_token"
-}
-```
-
-Authenticated requests use:
-
-```http
-Authorization: Bearer <token>
-```
-
-### User Profile
+Profile:
 
 ```http
 GET /api/me
 PUT /api/profile
 ```
 
-Profile fields:
-
-- `experience_level`: `beginner`, `intermediate`, `advanced`
-- `goal`: `muscle_gain`, `fat_loss`, `strength`
-- `gender`: `male`, `female`, `not_specified`
-- `language`: `system`, `zh-CN`, `en-US`
-- `height_cm`: number or `null`
-- `weight_kg`: number or `null`
-
-### AI Workout Planning
+AI workout planning:
 
 ```http
 POST /api/plan/generate
 POST /api/plan/adjust
 ```
 
-Generated plans are temporary and include:
-
-- session direction: `muscle_group`, `day_type`, `duration_minutes`, `ai_note`
-- ordered exercises
-- exercise categories: `warmup`, `main`, `accessory`, `finisher`, `cooldown`
-
-The response language follows:
-
-1. `Accept-Language`
-2. `user_profiles.language`
-3. system/default behavior
-
-### Completed Training
+Completed training:
 
 ```http
 POST /api/training-sessions
@@ -132,43 +95,20 @@ GET /api/training-sessions/week?start_date=2026-05-18
 GET /api/training-sessions/{id}
 ```
 
-All training session queries are scoped to the current JWT user. Users cannot read sessions owned by another account.
-
-Example save request:
-
-```json
-{
-  "session_date": "2026-05-22",
-  "muscle_group": "legs",
-  "day_type": "腿部 · 力量日",
-  "duration_minutes": 55,
-  "ai_note": "今天稳住动作质量。",
-  "exercises": [
-    {
-      "exercise_name": "深蹲",
-      "category": "main",
-      "sets": 4,
-      "reps": 8,
-      "weight": 85,
-      "unit": "kg",
-      "rationale": "主要力量动作。"
-    }
-  ]
-}
-```
-
-### Weekly Planning
+Weekly planning:
 
 ```http
 GET /api/week-plan?start_date=2026-05-18
 GET /api/coach/week-message
 ```
 
-`/api/week-plan` returns broad training directions for the rest of the week, such as `legs`, `back`, `full_body`, or `rest`. It does not generate exercise details and does not write to training history.
+Health check:
 
-`/api/coach/week-message` returns a short message for the weekly training page, using profile and recent training context.
+```http
+GET /api/health
+```
 
-## Local Setup
+## Local Development
 
 Install dependencies:
 
@@ -199,42 +139,15 @@ Run the API:
 dotnet run
 ```
 
-Health check:
+Check the API:
 
-```http
-GET /api/health
+```bash
+curl http://localhost:3001/api/health
 ```
 
-## Environment Variables
-
-| Variable | Description |
-| --- | --- |
-| `DATABASE_PROVIDER` | `sqlite` locally or `postgres` for PostgreSQL/Supabase. |
-| `DATABASE_URL` | SQLite or PostgreSQL connection string. |
-| `JWT_SECRET` | Secret used to sign JWT tokens. Use a long random value in production. |
-| `JWT_ISSUER` | JWT issuer, usually `FitQuest.Api`. |
-| `JWT_AUDIENCE` | JWT audience, usually `FitQuest.Client`. |
-| `AI_PROVIDER` | AI provider label, currently `DeepSeek`. |
-| `AI_API_KEY` | AI provider API key. |
-| `AI_BASE_URL` | AI API base URL. |
-| `AI_MODEL` | Model name, currently `deepseek-v4-flash`. |
-| `FRONTEND_ORIGIN` | Single allowed frontend origin for CORS. |
-| `FRONTEND_ORIGINS` | Comma-separated allowed frontend origins. Prefer this in production. |
-| `PORT` | Optional local port override. Render sets this automatically. |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Token for a Cloudflare named tunnel when running with Docker Compose. |
-
-## Production Deployment
+## Docker Deployment
 
 The project includes a `Dockerfile` and `docker-compose.yml` for container deployment.
-
-### Docker Compose + Cloudflare Tunnel
-
-Edit `.env` and set:
-
-- `JWT_SECRET` to a long random value.
-- `AI_API_KEY` to your DeepSeek-compatible API key.
-- `FRONTEND_ORIGINS` to your frontend origin.
-- `CLOUDFLARE_TUNNEL_TOKEN` to the token from a Cloudflare named tunnel.
 
 Build and run the API:
 
@@ -256,18 +169,15 @@ docker compose --profile quick-tunnel up -d --build api cloudflared-quick
 docker compose logs -f cloudflared-quick
 ```
 
-For a production Cloudflare named tunnel, open Cloudflare Zero Trust:
+For a production Cloudflare named tunnel:
 
-1. Create a tunnel.
+1. Create a tunnel in Cloudflare Zero Trust.
 2. Choose Docker as the connector.
 3. Add a public hostname.
-4. Set the service URL to:
+4. Set the service URL to `http://api:8080`.
+5. Set `CLOUDFLARE_TUNNEL_TOKEN` in `.env`.
 
-```text
-http://api:8080
-```
-
-Then run the API and tunnel:
+Run the API and named tunnel:
 
 ```bash
 docker compose up -d --build
@@ -279,7 +189,7 @@ Check the tunnel connector:
 docker compose logs -f cloudflared
 ```
 
-Stop it:
+Stop the stack:
 
 ```bash
 docker compose down
@@ -287,11 +197,27 @@ docker compose down
 
 The default compose setup uses SQLite stored in a Docker volume at `/app/data/fitness.db`. For PostgreSQL or Supabase, set `DATABASE_PROVIDER=postgres` and replace `DATABASE_URL` in `.env`.
 
-### Render
+## Environment Variables
 
-Render does not need a native .NET runtime option; deploy it as a Docker web service.
+| Variable | Description |
+| --- | --- |
+| `DATABASE_PROVIDER` | `sqlite` locally or `postgres` for PostgreSQL/Supabase. |
+| `DATABASE_URL` | SQLite or PostgreSQL connection string. |
+| `JWT_SECRET` | Secret used to sign JWT tokens. Use a long random value in production. |
+| `JWT_ISSUER` | JWT issuer, usually `FitQuest.Api`. |
+| `JWT_AUDIENCE` | JWT audience, usually `FitQuest.Client`. |
+| `AI_PROVIDER` | AI provider label, currently `DeepSeek`. |
+| `AI_API_KEY` | AI provider API key. |
+| `AI_BASE_URL` | AI API base URL. |
+| `AI_MODEL` | Model name, currently `deepseek-v4-flash`. |
+| `FRONTEND_ORIGIN` | Single allowed frontend origin for CORS. |
+| `FRONTEND_ORIGINS` | Comma-separated allowed frontend origins. Prefer this in production. |
+| `PORT` | Optional local port override. Render sets this automatically. |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Token for a Cloudflare named tunnel when running with Docker Compose. |
 
-Recommended Render environment variables:
+## Alternative Deployment
+
+Render can deploy this project as a Docker web service. Recommended production environment variables:
 
 ```env
 DATABASE_PROVIDER=postgres
@@ -314,7 +240,7 @@ Frontend API base URL should include `/api`:
 VITE_API_BASE_URL=https://your-render-service.onrender.com/api
 ```
 
-## Security Considerations
+## Security Notes
 
 - Passwords are stored as BCrypt hashes.
 - JWT signing secrets and API keys are read from environment variables.
@@ -322,6 +248,14 @@ VITE_API_BASE_URL=https://your-render-service.onrender.com/api
 - Protected training endpoints filter by the current JWT user.
 - AI prompts avoid user names and email addresses.
 - `.env`, local database files, and app settings files are excluded from Git.
+
+## Future Improvements
+
+- Add automated integration tests for authentication and protected training endpoints.
+- Add EF Core migrations instead of startup schema initialization.
+- Add structured logging and request correlation IDs.
+- Add rate limiting around authentication and AI endpoints.
+- Add CI checks for build, tests, and container image creation.
 
 ## Build
 
