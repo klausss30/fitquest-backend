@@ -5,6 +5,7 @@ using FitQuest.Api.Models;
 using FitQuest.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace FitQuest.Api.Controllers;
@@ -14,8 +15,6 @@ namespace FitQuest.Api.Controllers;
 [Route("api/plan")]
 public class PlanController : ControllerBase
 {
-    private static readonly string[] MuscleGroups = ["legs", "chest", "back", "shoulders", "arms", "full_body"];
-    private static readonly string[] DefaultMuscleGroupOrder = ["full_body", "chest", "back", "shoulders", "arms", "legs"];
     private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -33,6 +32,7 @@ public class PlanController : ControllerBase
     }
 
     [HttpPost("generate")]
+    [EnableRateLimiting("ai")]
     public async Task<IActionResult> Generate([FromBody] GeneratePlanRequest request, CancellationToken ct)
     {
         var userId = this.CurrentUserId();
@@ -43,7 +43,7 @@ public class PlanController : ControllerBase
         if (user is null) return Unauthorized(new { error = "用户不存在或登录已失效" });
 
         var muscleGroup = NormalizeOptional(request.MuscleGroup);
-        if (muscleGroup is not null && !MuscleGroups.Contains(muscleGroup))
+        if (muscleGroup is not null && !ControllerHelpers.MuscleGroups.Contains(muscleGroup))
             return BadRequest(new { error = "muscle_group 必须是 legs / chest / back / shoulders / arms / full_body" });
 
         var durationMinutes = request.DurationMinutes ?? 60;
@@ -58,6 +58,9 @@ public class PlanController : ControllerBase
             .ToList();
         var selectedMuscleGroup = muscleGroup ?? ChooseMuscleGroup(sessionDate, recentSessions);
 
+        var todayCheckIn = await _db.DailyCheckIns
+            .FirstOrDefaultAsync(x => x.UserId == userId && x.Date == sessionDate, ct);
+
         var context = new AiPlanPromptContext(
             user.ToSnapshot(),
             user.Profile?.ToSnapshot(),
@@ -67,7 +70,15 @@ public class PlanController : ControllerBase
             durationMinutes,
             ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), user.Profile?.Language),
             completedToday,
-            recentSessions);
+            recentSessions,
+            todayCheckIn is null ? null : new CheckInSnapshot(
+                todayCheckIn.SleepHours,
+                todayCheckIn.EnergyLevel,
+                todayCheckIn.StressLevel,
+                todayCheckIn.WeightKg,
+                todayCheckIn.RecoveryScore,
+                DescribeRecoveryStatus(todayCheckIn.RecoveryScore),
+                todayCheckIn.Notes));
 
         var fallbackPrompt = JsonSerializer.Serialize(context, SnapshotJson);
 
@@ -94,6 +105,7 @@ public class PlanController : ControllerBase
     }
 
     [HttpPost("adjust")]
+    [EnableRateLimiting("ai")]
     public async Task<IActionResult> Adjust([FromBody] AdjustPlanRequest request, CancellationToken ct)
     {
         var userId = this.CurrentUserId();
@@ -111,11 +123,14 @@ public class PlanController : ControllerBase
             return BadRequest(new { error = "exercises 不能为空" });
 
         var currentSnapshot = ToSnapshot(request.CurrentPlan, request.Exercises);
+        var customMessage = request.CustomMessage?.Length > 500
+            ? request.CustomMessage[..500]
+            : request.CustomMessage;
         var context = new AiAdjustPromptContext(
             user.ToSnapshot(),
             user.Profile?.ToSnapshot(),
             (request.AdjustType ?? "").Trim().ToLowerInvariant(),
-            request.CustomMessage,
+            customMessage,
             ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), user.Profile?.Language),
             currentSnapshot,
             await LoadRecentSessions(userId, null, ct));
@@ -204,8 +219,12 @@ public class PlanController : ControllerBase
                 exercise.Unit,
                 exercise.Rationale,
                 index + 1)),
+            reasoning = plan.Reasoning,
         };
     }
+
+    private static string DescribeRecoveryStatus(int score) =>
+        ControllerHelpers.DescribeRecoveryStatus(score);
 
     private static SessionSnapshot ToSnapshot(TemporaryPlanDto plan, List<TemporaryExerciseDto> exercises)
     {
@@ -243,15 +262,15 @@ public class PlanController : ControllerBase
             .Select(x => x.MuscleGroup)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var candidates = MuscleGroups
+        var candidates = ControllerHelpers.MuscleGroups
             .Where(x => !completedToday.Contains(x))
             .ToList();
 
         if (candidates.Count == 0)
-            candidates = MuscleGroups.ToList();
+            candidates = ControllerHelpers.MuscleGroups.ToList();
 
         if (recentSessions.Count == 0)
-            return candidates.OrderBy(x => Array.IndexOf(DefaultMuscleGroupOrder, x)).First();
+            return candidates.OrderBy(x => Array.IndexOf(ControllerHelpers.DefaultMuscleGroupOrder, x)).First();
 
         return candidates
             .Select(group => new
@@ -261,7 +280,7 @@ public class PlanController : ControllerBase
                     .Where(x => string.Equals(x.MuscleGroup, group, StringComparison.OrdinalIgnoreCase))
                     .Select(x => (DateOnly?)x.SessionDate)
                     .Max(),
-                DefaultRank = Array.IndexOf(DefaultMuscleGroupOrder, group),
+                DefaultRank = Array.IndexOf(ControllerHelpers.DefaultMuscleGroupOrder, group),
             })
             .OrderBy(x => x.LastDate.HasValue ? 1 : 0)
             .ThenBy(x => x.LastDate ?? DateOnly.MinValue)
@@ -270,31 +289,8 @@ public class PlanController : ControllerBase
             .Group;
     }
 
-    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage)
-    {
-        if (string.IsNullOrWhiteSpace(acceptLanguage))
-            return ResolveStoredLanguage(profileLanguage);
-
-        var firstLanguage = acceptLanguage
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault()?
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault()
-            ?.ToLowerInvariant();
-
-        if (firstLanguage is null) return "zh";
-        return firstLanguage.StartsWith("zh") ? "zh" : "en";
-    }
-
-    private static string ResolveStoredLanguage(string? profileLanguage)
-    {
-        return profileLanguage switch
-        {
-            "zh-CN" => "zh",
-            "en-US" => "en",
-            _ => "zh",
-        };
-    }
+    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage) =>
+        ControllerHelpers.ResolveOutputLanguage(acceptLanguage, profileLanguage);
 }
 
 file static class PlanControllerMapping

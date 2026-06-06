@@ -10,12 +10,33 @@ public interface IAiService
     Task<AiPlanResult> GeneratePlanAsync(AiPlanPromptContext context, CancellationToken ct = default);
 
     Task<AiPlanResult> AdjustPlanAsync(AiAdjustPromptContext context, CancellationToken ct = default);
+
+    Task<AiNutritionResult> GenerateNutritionAsync(AiNutritionPromptContext context, CancellationToken ct = default);
 }
 
 public record AiPlanResult(
     GeneratedPlan Plan,
     string PromptSnapshot,
     string ResponseSnapshot);
+
+public record AiNutritionResult(
+    GeneratedNutrition Nutrition,
+    string PromptSnapshot,
+    string ResponseSnapshot);
+
+public record AiNutritionPromptContext(
+    UserSnapshot User,
+    ProfileSnapshot? Profile,
+    string OutputLanguage,
+    CheckInSnapshot? TodayCheckIn,
+    int SessionsLast7Days,
+    TodayPlanSnapshot? TodayPlan = null);
+
+public record TodayPlanSnapshot(
+    string MuscleGroup,
+    string DayType,
+    int DurationMinutes,
+    string? AiNote);
 
 public class AiResponseParseException : InvalidOperationException
 {
@@ -28,6 +49,15 @@ public class AiResponseParseException : InvalidOperationException
     public string ResponseSnapshot { get; }
 }
 
+public record CheckInSnapshot(
+    double SleepHours,
+    int EnergyLevel,
+    int StressLevel,
+    double? WeightKg,
+    int RecoveryScore,
+    string RecoveryStatus,
+    string? Notes);
+
 public record AiPlanPromptContext(
     UserSnapshot User,
     ProfileSnapshot? Profile,
@@ -37,7 +67,8 @@ public record AiPlanPromptContext(
     int DurationMinutes,
     string OutputLanguage,
     List<string> CompletedMuscleGroupsToday,
-    List<SessionSnapshot> RecentSessions);
+    List<SessionSnapshot> RecentSessions,
+    CheckInSnapshot? TodayCheckIn = null);
 
 public record AiAdjustPromptContext(
     UserSnapshot User,

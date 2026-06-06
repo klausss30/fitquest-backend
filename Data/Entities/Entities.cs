@@ -22,6 +22,7 @@ public class User : ICreatedAt, IUpdatedAt
     public UserProfile? Profile { get; set; }
     public List<TrainingSession> TrainingSessions { get; set; } = [];
     public List<AiPlanRequest> AiPlanRequests { get; set; } = [];
+    public List<DailyCheckIn> DailyCheckIns { get; set; } = [];
 }
 
 public class UserProfile : ICreatedAt, IUpdatedAt
@@ -72,6 +73,23 @@ public class SessionExercise : ICreatedAt, IUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 
     public TrainingSession? Session { get; set; }
+}
+
+public class DailyCheckIn : ICreatedAt, IUpdatedAt
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public DateOnly Date { get; set; }
+    public double SleepHours { get; set; }
+    public int EnergyLevel { get; set; }   // 1–10
+    public int StressLevel { get; set; }   // 1–10
+    public double? WeightKg { get; set; }
+    public string? Notes { get; set; }
+    public int RecoveryScore { get; set; } // 0–100, computed on save
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public User? User { get; set; }
 }
 
 public class AiPlanRequest : ICreatedAt

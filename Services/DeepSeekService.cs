@@ -13,6 +13,7 @@ public class DeepSeekService : IAiService
     private readonly string _apiKey;
     private readonly string _model;
     private readonly string _provider;
+    private readonly string _chatPath;
     private readonly ILogger<DeepSeekService> _logger;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -25,10 +26,22 @@ public class DeepSeekService : IAiService
     {
         _http = http;
         _logger = logger;
-        _provider = GetConfigValue(cfg, "Provider", "AI_PROVIDER") ?? "DeepSeek";
+
         _apiKey = GetConfigValue(cfg, "ApiKey", "AI_API_KEY")
-            ?? throw new InvalidOperationException("Ai:ApiKey is not configured.");
-        _model = GetConfigValue(cfg, "Model", "AI_MODEL") ?? "deepseek-v4-flash";
+            ?? throw new InvalidOperationException(
+                "AI API key is not configured. Set AI_API_KEY in .env.");
+
+        // Detect Azure AI Foundry from the base URL — no separate AI_PROVIDER var needed.
+        // Azure uses /chat/completions; DeepSeek uses /v1/chat/completions.
+        var baseUrl = GetConfigValue(cfg, "BaseUrl", "AI_BASE_URL") ?? "";
+        var isAzure = baseUrl.Contains("services.ai.azure.com", StringComparison.OrdinalIgnoreCase)
+                   || (GetConfigValue(cfg, "Provider", "AI_PROVIDER") ?? "")
+                      .Equals("azure-foundry", StringComparison.OrdinalIgnoreCase);
+
+        _provider = isAzure ? "azure-foundry" : (GetConfigValue(cfg, "Provider", "AI_PROVIDER") ?? "DeepSeek");
+        _chatPath = isAzure ? "chat/completions" : "v1/chat/completions";
+        _model    = GetConfigValue(cfg, "Model", "AI_MODEL")
+            ?? (isAzure ? "gpt-4o" : "deepseek-chat");
     }
 
     public string Provider => _provider;
@@ -42,7 +55,7 @@ public class DeepSeekService : IAiService
 
         var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.5, 3200, ct);
 
-        var plan = DeserializePlan(content, "DeepSeek returned invalid plan JSON.");
+        var plan = DeserializePlan(content, $"{_provider} returned invalid plan JSON.");
 
         try
         {
@@ -64,7 +77,7 @@ public class DeepSeekService : IAiService
 
         var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.5, 3200, ct);
 
-        var plan = DeserializePlan(content, "DeepSeek returned invalid adjusted plan JSON.");
+        var plan = DeserializePlan(content, $"{_provider} returned invalid adjusted plan JSON.");
 
         try
         {
@@ -110,7 +123,7 @@ public class DeepSeekService : IAiService
             max_tokens = maxTokens,
         };
 
-        var response = await PostAsync("/v1/chat/completions", requestBody, ct);
+        var response = await PostAsync(_chatPath, requestBody, ct);
         return (promptSnapshot, ExtractContent(response));
     }
 
@@ -118,8 +131,23 @@ public class DeepSeekService : IAiService
     {
         try
         {
-            return JsonSerializer.Deserialize<GeneratedPlan>(content, JsonOpts)
+            // Parse the full AI response which now includes reasoning + plan fields
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            // Parse reasoning (optional – if AI omits it, we continue without it)
+            PlanReasoning? reasoning = null;
+            if (root.TryGetProperty("reasoning", out var reasoningEl))
+            {
+                try { reasoning = JsonSerializer.Deserialize<PlanReasoning>(reasoningEl.GetRawText(), JsonOpts); }
+                catch { /* reasoning parse failure is non-fatal */ }
+            }
+
+            // Parse core plan fields from the same root object
+            var plan = JsonSerializer.Deserialize<GeneratedPlan>(content, JsonOpts)
                 ?? throw new JsonException("Deserialized plan was null.");
+
+            return plan with { Reasoning = reasoning };
         }
         catch (JsonException ex)
         {
@@ -127,18 +155,69 @@ public class DeepSeekService : IAiService
         }
     }
 
+    public async Task<AiNutritionResult> GenerateNutritionAsync(AiNutritionPromptContext context, CancellationToken ct = default)
+    {
+        var systemPrompt = BuildNutritionSystemPrompt(context.OutputLanguage);
+        var userMessage  = BuildNutritionUserMessage(context);
+
+        var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.4, 2400, ct);
+
+        GeneratedNutrition nutrition;
+        try
+        {
+            nutrition = JsonSerializer.Deserialize<GeneratedNutrition>(content, JsonOpts)
+                ?? throw new JsonException("Deserialized nutrition was null.");
+        }
+        catch (JsonException ex)
+        {
+            throw new AiResponseParseException($"{_provider} returned invalid nutrition JSON.", content, ex);
+        }
+
+        return new AiNutritionResult(nutrition, promptSnapshot, content);
+    }
+
     // Prompt builders
 
     private static string BuildGenerateSystemPrompt(string outputLanguage) => $$"""
-        你是一位专业、热情、有感染力的 AI 私人教练。你的任务是根据用户训练画像、目标肌群、训练时长和最近训练记录，生成今日训练计划。
+        你是一位专业、热情、有感染力的 AI 私人教练 Agent。你的任务是：
+        1. 先分析用户的目标、当日状态、风险和训练历史，完成多步推理
+        2. 基于推理结果，生成今日训练计划
         {{BuildCoachTonePrompt(outputLanguage)}}
 
         你必须只返回一个合法 JSON object。不要返回 Markdown，不要返回解释文字，不要使用代码块。
         输出语言必须是：{{DescribeLanguage(outputLanguage)}}。
-        不允许中英混杂。dayType、aiNote、exerciseName、rationale 必须全部使用目标语言。
+        不允许中英混杂。所有文字字段必须全部使用目标语言。
 
         返回 JSON 必须严格符合以下结构：
         {
+          "reasoning": {
+            "goalAnalysis": {
+              "primaryGoal": "string",
+              "secondaryGoal": "string | null",
+              "note": "string（1句，说明目标对今日训练的影响）"
+            },
+            "recoveryAnalysis": null 或 {
+              "sleepHours": number,
+              "energyLevel": number,
+              "stressLevel": number,
+              "recoveryScore": number,
+              "summary": "string（1句，对当前恢复状态的判断）"
+            },
+            "riskAssessment": {
+              "level": "low | moderate | high",
+              "factors": ["string"]
+            },
+            "historyAnalysis": {
+              "sessionsLast7Days": number,
+              "lastMuscleGroup": "string | null",
+              "summary": "string（1句，描述最近训练规律）"
+            },
+            "decision": {
+              "muscleGroup": "string",
+              "action": "string（1句，今日训练方向）",
+              "rationale": "string（1句，解释为什么这样决定）"
+            }
+          },
           "muscleGroup": "legs | chest | back | shoulders | arms | full_body",
           "dayType": "string",
           "durationMinutes": number,
@@ -155,6 +234,14 @@ public class DeepSeekService : IAiService
             }
           ]
         }
+
+        reasoning 字段规则：
+        - 如果 request.todayCheckIn 为 null，recoveryAnalysis 必须为 null
+        - 如果 request.todayCheckIn 不为 null，recoveryAnalysis 必须填写，使用 checkIn 的数据
+        - riskAssessment.level 必须是 low / moderate / high 之一
+        - riskAssessment.factors 是 1-3 条简短的风险或利好因素（目标语言）
+        - historyAnalysis.sessionsLast7Days 从 recentSessions 中统计最近7天的数量
+        - decision.muscleGroup 必须和最终 muscleGroup 一致
 
         规则：
         - muscleGroup 必须是以下值之一：legs, chest, back, shoulders, arms, full_body
@@ -183,8 +270,13 @@ public class DeepSeekService : IAiService
         - 如果目标是 strength，主项优先较低 reps 和更高重量
         - gender 可作为训练量、动作选择、恢复建议的参考因素之一，但不要做刻板化判断
         - 如果 gender 是 not_specified，按通用方案处理
-        - 如果没有历史训练记录，使用保守入门重量
+        - 如果用户提供了 weightKg，按以下区间推荐起始重量（仅针对有负重的动作）：
+          · 大肌群复合动作（卧推/深蹲/硬拉/划船等）：beginner 约体重的40-60%，intermediate 70-100%，advanced 100%+
+          · 小肌群孤立动作（侧平举/飞鸟/弯举等）：beginner 约体重的5-10%，intermediate 10-20%，advanced 20%+
+          · 如有历史记录，以历史重量为准，优先于上述比例
+        - 如果没有 weightKg，使用保守入门重量
         - 如果有历史训练记录，参考最近同肌群或相关动作的重量，不要突然大幅增加
+        - 如果同时有 heightCm 和 weightKg，可据此估算体型，调整动作选择与训练密度
         - dayType 要像真实私人教练给今天训练起的标题
         - aiNote 使用目标语言，1-2 句，积极、有感染力、亲切，但必须具体说明训练逻辑
         - rationale 使用目标语言，每个动作 1 句，像教练在解释为什么安排这个动作
@@ -211,6 +303,16 @@ public class DeepSeekService : IAiService
                 muscleGroupSource = context.MuscleGroupSource,
                 requestedDurationMinutes = context.DurationMinutes,
                 outputLanguage = context.OutputLanguage,
+            },
+            todayCheckIn = context.TodayCheckIn is null ? null : new
+            {
+                sleepHours = context.TodayCheckIn.SleepHours,
+                energyLevel = context.TodayCheckIn.EnergyLevel,
+                stressLevel = context.TodayCheckIn.StressLevel,
+                weightKg = context.TodayCheckIn.WeightKg,
+                recoveryScore = context.TodayCheckIn.RecoveryScore,
+                recoveryStatus = context.TodayCheckIn.RecoveryStatus,
+                notes = context.TodayCheckIn.Notes,
             },
             completedMuscleGroupsToday = context.CompletedMuscleGroupsToday,
             recentSessions = context.RecentSessions.Select(ToPromptSession),
@@ -299,6 +401,102 @@ public class DeepSeekService : IAiService
         }, JsonOpts);
     }
 
+    private static string BuildNutritionSystemPrompt(string outputLanguage) => $$"""
+        你是一位专业 AI 营养教练，也是多 Agent 系统的一部分。你会接收来自训练 Agent 的当日训练计划数据，并将其整合到营养建议中。
+        根据用户的体型数据、训练目标、当日状态、最近训练频率，以及今日训练计划（如有），给出个性化每日营养建议。
+        你必须只返回一个合法 JSON object。不要返回 Markdown，不要返回解释文字，不要使用代码块。
+        输出语言必须是：{{DescribeLanguage(outputLanguage)}}。不允许中英混杂。
+
+        返回 JSON 必须严格符合以下结构：
+        {
+          "dailyCalories": number,
+          "proteinG": number,
+          "carbsG": number,
+          "fatG": number,
+          "goalNote": "string（1-2 句，说明该方案如何支持用户目标）",
+          "mealSuggestions": [
+            {
+              "meal": "string（早餐/午餐/晚餐/加餐 or Breakfast/Lunch/Dinner/Snack）",
+              "suggestion": "string（具体食物搭配，1-2 句）",
+              "caloriesApprox": number
+            }
+          ],
+          "reasoning": "string（1-2 句，说明热量和宏量营养素的推算依据）"
+        }
+
+        热量计算步骤（必须按此顺序执行）：
+        1. 确定体重：优先使用 weightKg，否则用 70kg
+        2. 确定身高：优先使用 heightCm，否则用 170cm
+        3. 使用 Mifflin-St Jeor 公式计算 BMR（年龄默认 28）：
+           · 男性：BMR = 10 × weightKg + 6.25 × heightCm - 5 × 28 + 5
+           · 女性：BMR = 10 × weightKg + 6.25 × heightCm - 5 × 28 - 161
+           · 未指定性别：使用男女平均值
+        4. 根据 sessionsLast7Days 确定活动系数（TDEE = BMR × 系数）：
+           · 0-1次：× 1.2（久坐）
+           · 2-3次：× 1.375（轻度活跃）
+           · 4-5次：× 1.55（中度活跃）
+           · 6-7次：× 1.725（高度活跃）
+        5. 根据目标调整 dailyCalories：
+           · fat_loss：TDEE × 0.80（20% 赤字）
+           · muscle_gain：TDEE × 1.10（10% 盈余）
+           · strength：TDEE × 1.00（维持）
+        6. 四舍五入到最近的 50kcal
+
+        宏量营养素分配：
+        - fat_loss：蛋白质 2.0g/kg，脂肪 25% 热量，其余为碳水
+        - muscle_gain：蛋白质 2.2g/kg，脂肪 25% 热量，其余为碳水
+        - strength：蛋白质 2.0g/kg，脂肪 30% 热量，其余为碳水
+        - 蛋白质 1g = 4 kcal，碳水 1g = 4 kcal，脂肪 1g = 9 kcal
+
+        其他规则：
+        - dailyCalories 必须是正整数，且与 proteinG×4 + carbsG×4 + fatG×9 大致吻合（±5%）
+        - mealSuggestions 必须包含 3 到 4 条（早/午/晚/加餐）
+        - 每条 caloriesApprox 之和应接近 dailyCalories
+        - 训练频率高（≥4次/7天）：碳水可适当上浮 5-10%
+        - 今日状态差（energy≤3 或 stress≥8）：建议易消化食物，不要高脂高纤维
+        - 不要列购物清单，不要给精确菜谱，建议具体但实用的食物搭配
+
+        多 Agent 协同规则（todayTrainingPlan 字段）：
+        - 若 todayTrainingPlan 存在，说明训练 Agent 已生成今日计划，需将其整合进营养方案
+        - legs / full_body 训练日：碳水上浮 8-12%，蛋白质不变，优先训练后补充碳水
+        - chest / back / shoulders：蛋白质上浮 0.1g/kg，脂肪维持
+        - arms：保持标准方案，在 goalNote 中提示肌肉合成需要的氨基酸来源
+        - 训练时长 > 60 分钟：建议加 1 条训练后加餐（蛋白质 + 快碳水）
+        - 在 goalNote 中明确提及今日训练计划对营养方案的影响
+        """;
+
+    private static string BuildNutritionUserMessage(AiNutritionPromptContext context)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            userProfile = context.Profile is null
+                ? null
+                : new
+                {
+                    goal            = context.Profile.Goal,
+                    gender          = context.Profile.Gender,
+                    heightCm        = context.Profile.HeightCm,
+                    weightKg        = context.Profile.WeightKg,
+                    experienceLevel = context.Profile.ExperienceLevel,
+                },
+            sessionsLast7Days = context.SessionsLast7Days,
+            todayCheckIn = context.TodayCheckIn is null ? null : new
+            {
+                energyLevel   = context.TodayCheckIn.EnergyLevel,
+                stressLevel   = context.TodayCheckIn.StressLevel,
+                recoveryScore = context.TodayCheckIn.RecoveryScore,
+            },
+            todayTrainingPlan = context.TodayPlan is null ? null : new
+            {
+                muscleGroup     = context.TodayPlan.MuscleGroup,
+                dayType         = context.TodayPlan.DayType,
+                durationMinutes = context.TodayPlan.DurationMinutes,
+                aiNote          = context.TodayPlan.AiNote,
+            },
+            outputLanguage = context.OutputLanguage,
+        }, JsonOpts);
+    }
+
     // Helpers
 
     private async Task<JsonDocument> PostAsync(string path, object body, CancellationToken ct)
@@ -317,12 +515,12 @@ public class DeepSeekService : IAiService
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("DeepSeek API error {Status}: {Body}", (int)response.StatusCode, json);
+            _logger.LogError("{Provider} API error {Status}: {Body}", _provider, (int)response.StatusCode, json);
             throw new HttpRequestException(
-                $"DeepSeek API returned {(int)response.StatusCode}: {json}");
+                $"{_provider} API returned {(int)response.StatusCode}: {json}");
         }
 
-        _logger.LogDebug("DeepSeek raw response: {Body}", json);
+        _logger.LogDebug("{Provider} raw response: {Body}", _provider, json);
         return JsonDocument.Parse(json);
     }
 
@@ -338,16 +536,15 @@ public class DeepSeekService : IAiService
 
     private static string? GetConfigValue(IConfiguration cfg, string key, params string[] envNames)
     {
-        var configured = cfg[$"Ai:{key}"];
-        if (!string.IsNullOrWhiteSpace(configured)) return configured;
-
+        // Env vars take priority — ResolveAiProvider() in Program.cs sets them at startup
+        // to override appsettings.json defaults when switching providers.
         foreach (var envName in envNames)
         {
             var envValue = Environment.GetEnvironmentVariable(envName);
             if (!string.IsNullOrWhiteSpace(envValue)) return envValue;
         }
 
-        return null;
+        return cfg[$"Ai:{key}"];
     }
 
     private static GeneratedPlan NormalizePlan(GeneratedPlan plan, string? fallbackMuscleGroup, int fallbackDuration, int minExercises, int maxExercises)

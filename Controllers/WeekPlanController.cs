@@ -12,9 +12,6 @@ namespace FitQuest.Api.Controllers;
 [Route("api/week-plan")]
 public class WeekPlanController : ControllerBase
 {
-    private static readonly string[] MuscleGroups = ["legs", "chest", "back", "shoulders", "arms", "full_body"];
-    private static readonly string[] DefaultOrder = ["full_body", "chest", "back", "shoulders", "arms", "legs"];
-
     private readonly AppDbContext _db;
 
     public WeekPlanController(AppDbContext db)
@@ -159,12 +156,12 @@ public class WeekPlanController : ControllerBase
             .Concat(plannedDays.Where(x => x.MuscleGroup != "rest").Select(x => x.MuscleGroup))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var candidates = MuscleGroups
+        var candidates = ControllerHelpers.MuscleGroups
             .Where(x => !alreadyPlannedOrCompletedThisWeek.Contains(x))
             .ToList();
 
         if (candidates.Count == 0)
-            candidates = MuscleGroups.ToList();
+            candidates = ControllerHelpers.MuscleGroups.ToList();
 
         if (sessions.Count == 0)
             return candidates.OrderBy(DefaultRank).First();
@@ -282,44 +279,18 @@ public class WeekPlanController : ControllerBase
         return count;
     }
 
-    private static DateOnly StartOfWeek(DateOnly date)
-    {
-        var diff = ((int)date.DayOfWeek + 6) % 7;
-        return date.AddDays(-diff);
-    }
+    private static DateOnly StartOfWeek(DateOnly date) =>
+        ControllerHelpers.StartOfWeek(date);
 
-    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage)
-    {
-        if (string.IsNullOrWhiteSpace(acceptLanguage))
-            return ResolveStoredLanguage(profileLanguage);
-
-        var firstLanguage = acceptLanguage
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault()?
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault()
-            ?.ToLowerInvariant();
-
-        if (firstLanguage is null) return "zh";
-        return firstLanguage.StartsWith("zh") ? "zh" : "en";
-    }
-
-    private static string ResolveStoredLanguage(string? profileLanguage)
-    {
-        return profileLanguage switch
-        {
-            "zh-CN" => "zh",
-            "en-US" => "en",
-            _ => "zh",
-        };
-    }
+    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage) =>
+        ControllerHelpers.ResolveOutputLanguage(acceptLanguage, profileLanguage);
 
     private static string Text(string language, string zh, string en)
         => language == "zh" ? zh : en;
 
     private static int DefaultRank(string muscleGroup)
     {
-        var rank = Array.IndexOf(DefaultOrder, muscleGroup);
+        var rank = Array.IndexOf(ControllerHelpers.DefaultMuscleGroupOrder, muscleGroup);
         return rank < 0 ? int.MaxValue : rank;
     }
 }

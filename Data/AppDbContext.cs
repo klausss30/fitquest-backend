@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<TrainingSession> TrainingSessions => Set<TrainingSession>();
     public DbSet<SessionExercise> SessionExercises => Set<SessionExercise>();
     public DbSet<AiPlanRequest> AiPlanRequests => Set<AiPlanRequest>();
+    public DbSet<DailyCheckIn> DailyCheckIns => Set<DailyCheckIn>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +63,16 @@ public class AppDbContext : DbContext
             entity.HasOne(x => x.Session)
                 .WithMany(x => x.Exercises)
                 .HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DailyCheckIn>(entity =>
+        {
+            entity.ToTable("daily_checkins");
+            entity.HasIndex(x => new { x.UserId, x.Date }).IsUnique();
+            entity.HasOne(x => x.User)
+                .WithMany(x => x.DailyCheckIns)
+                .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

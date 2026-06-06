@@ -12,7 +12,6 @@ namespace FitQuest.Api.Controllers;
 [Route("api/training-sessions")]
 public class TrainingSessionsController : ControllerBase
 {
-    private static readonly string[] MuscleGroups = ["legs", "chest", "back", "shoulders", "arms", "full_body"];
     private static readonly string[] Categories = ["warmup", "main", "accessory", "finisher", "cooldown"];
     private static readonly string[] Units = ["kg", "lb"];
 
@@ -134,18 +133,15 @@ public class TrainingSessionsController : ControllerBase
         return Ok(new { sessions });
     }
 
-    private static DateOnly StartOfWeek(DateOnly date)
-    {
-        var diff = ((int)date.DayOfWeek + 6) % 7;
-        return date.AddDays(-diff);
-    }
+    private static DateOnly StartOfWeek(DateOnly date) =>
+        ControllerHelpers.StartOfWeek(date);
 
     private static string? ValidateCreateRequest(CreateTrainingSessionRequest? request)
     {
         if (request is null) return "请求不能为空";
 
         var muscleGroup = Normalize(request.MuscleGroup);
-        if (!MuscleGroups.Contains(muscleGroup))
+        if (!ControllerHelpers.MuscleGroups.Contains(muscleGroup))
             return "muscle_group 必须是 legs / chest / back / shoulders / arms / full_body";
         if (string.IsNullOrWhiteSpace(request.DayType))
             return "day_type 不能为空";

@@ -107,12 +107,48 @@ public record CreateSessionExerciseRequest(
     string? Unit,
     string? Rationale);
 
+// ── Reasoning models ─────────────────────────────────────────────────────────
+
+public record ReasoningGoalAnalysis(
+    string PrimaryGoal,
+    string? SecondaryGoal,
+    string Note);
+
+public record ReasoningRecoveryAnalysis(
+    double SleepHours,
+    int EnergyLevel,
+    int StressLevel,
+    int RecoveryScore,
+    string Summary);
+
+public record ReasoningRiskAssessment(
+    string Level,        // low | moderate | high
+    List<string> Factors);
+
+public record ReasoningHistoryAnalysis(
+    int SessionsLast7Days,
+    string? LastMuscleGroup,
+    string Summary);
+
+public record ReasoningDecision(
+    string MuscleGroup,
+    string Action,
+    string Rationale);
+
+public record PlanReasoning(
+    ReasoningGoalAnalysis GoalAnalysis,
+    ReasoningRecoveryAnalysis? RecoveryAnalysis,
+    ReasoningRiskAssessment RiskAssessment,
+    ReasoningHistoryAnalysis HistoryAnalysis,
+    ReasoningDecision Decision);
+
 public record GeneratedPlan(
     string MuscleGroup,
     string DayType,
     int DurationMinutes,
     string AiNote,
-    List<GeneratedPlanExercise> Exercises);
+    List<GeneratedPlanExercise> Exercises,
+    PlanReasoning? Reasoning = null);
 
 public record GeneratedPlanExercise(
     string ExerciseName,
@@ -122,6 +158,22 @@ public record GeneratedPlanExercise(
     double? Weight,
     string? Unit,
     string? Rationale);
+
+// ── Nutrition models ──────────────────────────────────────────────────────────
+
+public record NutritionMealSuggestion(
+    string Meal,
+    string Suggestion,
+    int CaloriesApprox);
+
+public record GeneratedNutrition(
+    int DailyCalories,
+    int ProteinG,
+    int CarbsG,
+    int FatG,
+    string GoalNote,
+    List<NutritionMealSuggestion> MealSuggestions,
+    string Reasoning);
 
 public static class ApiMapping
 {
