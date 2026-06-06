@@ -40,14 +40,14 @@ public class PlanController : ControllerBase
             .Include(x => x.Profile)
             .FirstOrDefaultAsync(x => x.Id == userId, ct);
 
-        if (user is null) return Unauthorized(new { error = "用户不存在或登录已失效" });
+        if (user is null) return Unauthorized(new { error = "User not found or session expired" });
 
         var muscleGroup = NormalizeOptional(request.MuscleGroup);
         if (muscleGroup is not null && !ControllerHelpers.MuscleGroups.Contains(muscleGroup))
-            return BadRequest(new { error = "muscle_group 必须是 legs / chest / back / shoulders / arms / full_body" });
+            return BadRequest(new { error = "muscle_group must be one of: legs / chest / back / shoulders / arms / full_body" });
 
         var durationMinutes = request.DurationMinutes ?? 60;
-        if (durationMinutes <= 0) return BadRequest(new { error = "duration_minutes 必须大于 0" });
+        if (durationMinutes <= 0) return BadRequest(new { error = "duration_minutes must be greater than 0" });
 
         var sessionDate = request.SessionDate ?? DateOnly.FromDateTime(DateTime.Today);
         var recentSessions = await LoadRecentSessions(userId, null, ct);
@@ -100,7 +100,7 @@ public class PlanController : ControllerBase
         {
             _logger.LogError(ex, "Failed to generate training plan for user {UserId}", userId);
             await SaveAiRequest(userId, "generate_plan", fallbackPrompt, ExtractFailedAiResponse(ex), "failed", ex.Message, ct);
-            return StatusCode(500, new { error = "计划生成失败，请稍后重试。" });
+            return StatusCode(500, new { error = "Failed to generate plan. Please try again." });
         }
     }
 
@@ -113,14 +113,14 @@ public class PlanController : ControllerBase
             .Include(x => x.Profile)
             .FirstOrDefaultAsync(x => x.Id == userId, ct);
 
-        if (user is null) return Unauthorized(new { error = "用户不存在或登录已失效" });
+        if (user is null) return Unauthorized(new { error = "User not found or session expired" });
 
         if (string.IsNullOrWhiteSpace(request.AdjustType))
-            return BadRequest(new { error = "adjust_type 不能为空" });
+            return BadRequest(new { error = "adjust_type is required" });
         if (request.CurrentPlan is null)
-            return BadRequest(new { error = "current_plan 不能为空" });
+            return BadRequest(new { error = "current_plan is required" });
         if (request.Exercises is null || request.Exercises.Count == 0)
-            return BadRequest(new { error = "exercises 不能为空" });
+            return BadRequest(new { error = "exercises cannot be empty" });
 
         var currentSnapshot = ToSnapshot(request.CurrentPlan, request.Exercises);
         var customMessage = request.CustomMessage?.Length > 500
@@ -155,7 +155,7 @@ public class PlanController : ControllerBase
         {
             _logger.LogError(ex, "Failed to adjust temporary training plan for user {UserId}", userId);
             await SaveAiRequest(userId, "adjust_plan", fallbackPrompt, ExtractFailedAiResponse(ex), "failed", ex.Message, ct);
-            return StatusCode(500, new { error = "训练计划调整失败，请稍后重试。" });
+            return StatusCode(500, new { error = "Failed to adjust plan. Please try again." });
         }
     }
 

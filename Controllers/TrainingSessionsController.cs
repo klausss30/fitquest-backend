@@ -98,7 +98,7 @@ public class TrainingSessionsController : ControllerBase
             .Include(x => x.Exercises)
             .FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
 
-        if (session is null) return NotFound(new { error = "训练记录不存在" });
+        if (session is null) return NotFound(new { error = "Training session not found" });
 
         return Ok(new
         {
@@ -138,30 +138,30 @@ public class TrainingSessionsController : ControllerBase
 
     private static string? ValidateCreateRequest(CreateTrainingSessionRequest? request)
     {
-        if (request is null) return "请求不能为空";
+        if (request is null) return "Request body is required";
 
         var muscleGroup = Normalize(request.MuscleGroup);
         if (!ControllerHelpers.MuscleGroups.Contains(muscleGroup))
-            return "muscle_group 必须是 legs / chest / back / shoulders / arms / full_body";
+            return "muscle_group must be one of: legs / chest / back / shoulders / arms / full_body";
         if (string.IsNullOrWhiteSpace(request.DayType))
-            return "day_type 不能为空";
+            return "day_type is required";
         if (request.DurationMinutes <= 0)
-            return "duration_minutes 必须大于 0";
+            return "duration_minutes must be greater than 0";
         if (request.Exercises is null || request.Exercises.Count == 0)
-            return "exercises 不能为空";
+            return "exercises cannot be empty";
 
         foreach (var exercise in request.Exercises)
         {
             if (string.IsNullOrWhiteSpace(exercise.ExerciseName))
-                return "exercise_name 不能为空";
+                return "exercise_name is required";
             if (!Categories.Contains(Normalize(exercise.Category)))
-                return "category 必须是 warmup / main / accessory / finisher / cooldown";
+                return "category must be one of: warmup / main / accessory / finisher / cooldown";
             if (exercise.Sets <= 0 || exercise.Reps <= 0)
-                return "sets 和 reps 必须大于 0";
+                return "sets and reps must be greater than 0";
             if (exercise.Weight.HasValue && exercise.Weight < 0)
-                return "weight 不能小于 0";
+                return "weight cannot be negative";
             if (!string.IsNullOrWhiteSpace(exercise.Unit) && !Units.Contains(Normalize(exercise.Unit)))
-                return "unit 必须是 kg / lb / null";
+                return "unit must be kg / lb / null";
         }
 
         return null;

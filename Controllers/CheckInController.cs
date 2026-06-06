@@ -25,11 +25,11 @@ public class CheckInController : ControllerBase
         var userId = this.CurrentUserId();
 
         if (request.SleepHours is < 0 or > 24)
-            return BadRequest(new { error = "sleep_hours 必须在 0–24 之间" });
+            return BadRequest(new { error = "sleep_hours must be between 0 and 24" });
         if (request.EnergyLevel is < 1 or > 10)
-            return BadRequest(new { error = "energy_level 必须在 1–10 之间" });
+            return BadRequest(new { error = "energy_level must be between 1 and 10" });
         if (request.StressLevel is < 1 or > 10)
-            return BadRequest(new { error = "stress_level 必须在 1–10 之间" });
+            return BadRequest(new { error = "stress_level must be between 1 and 10" });
 
         var date = request.Date ?? DateOnly.FromDateTime(DateTime.Today);
 

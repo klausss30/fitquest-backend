@@ -40,7 +40,7 @@ public class NutritionController : ControllerBase
             .Include(x => x.Profile)
             .FirstOrDefaultAsync(x => x.Id == userId, ct);
 
-        if (user is null) return Unauthorized(new { error = "用户不存在或登录已失效" });
+        if (user is null) return Unauthorized(new { error = "User not found or session expired" });
 
         // Sessions in the last 7 days
         var sevenDaysAgo    = today.AddDays(-6);
@@ -107,7 +107,7 @@ public class NutritionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to generate nutrition for user {UserId}", userId);
-            return StatusCode(500, new { error = "营养建议生成失败，请稍后重试。" });
+            return StatusCode(500, new { error = "Failed to generate nutrition advice. Please try again." });
         }
     }
 

@@ -90,7 +90,7 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, ct) =>
     {
         context.HttpContext.Response.StatusCode = 429;
-        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "请求太频繁，请稍后再试" }, ct);
+        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Too many requests — please wait a moment" }, ct);
     };
 });
 

@@ -26,7 +26,7 @@ public class MeController : ControllerBase
             .Include(x => x.Profile)
             .FirstOrDefaultAsync(x => x.Id == userId, ct);
 
-        if (user is null) return Unauthorized(new { error = "用户不存在或登录已失效" });
+        if (user is null) return Unauthorized(new { error = "User not found or session expired" });
 
         return Ok(new
         {
