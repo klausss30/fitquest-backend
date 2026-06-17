@@ -47,7 +47,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
     options.UseSqlite(connectionString);
 });
-builder.Services.AddHostedService<DatabaseKeepAliveService>();
 builder.Services.AddScoped<JwtTokenService>();
 
 var jwtSecret = JwtTokenService.GetJwtSecret(builder.Configuration);
@@ -439,46 +438,4 @@ static void EnsureUserProfileColumn(System.Data.Common.DbConnection connection, 
     using var alter = connection.CreateCommand();
     alter.CommandText = $"ALTER TABLE user_profiles ADD COLUMN {columnName} {columnDefinition};";
     alter.ExecuteNonQuery();
-}
-
-public sealed class DatabaseKeepAliveService : BackgroundService
-{
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<DatabaseKeepAliveService> _logger;
-
-    public DatabaseKeepAliveService(IServiceScopeFactory scopeFactory, ILogger<DatabaseKeepAliveService> logger)
-    {
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await Task.Delay(GetDelayUntilNextMidnight(), stoppingToken);
-
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                await db.Database.ExecuteSqlRawAsync("SELECT 1", stoppingToken);
-                _logger.LogInformation("Database keep-alive query completed.");
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Database keep-alive query failed.");
-            }
-        }
-    }
-
-    private static TimeSpan GetDelayUntilNextMidnight()
-    {
-        var now = DateTimeOffset.Now;
-        var nextMidnight = now.Date.AddDays(1);
-        return nextMidnight - now;
-    }
 }
