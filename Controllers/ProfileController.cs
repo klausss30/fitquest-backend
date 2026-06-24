@@ -15,7 +15,6 @@ public class ProfileController : ControllerBase
     private static readonly string[] ExperienceLevels = ["beginner", "intermediate", "advanced"];
     private static readonly string[] Goals = ["muscle_gain", "fat_loss", "strength"];
     private static readonly string[] Genders = ["male", "female", "not_specified"];
-    private static readonly string[] Languages = ["system", "zh-CN", "en-US"];
 
     private readonly AppDbContext _db;
 
@@ -31,20 +30,16 @@ public class ProfileController : ControllerBase
         var goal = (req.Goal ?? "").Trim().ToLowerInvariant();
 
         if (!ExperienceLevels.Contains(experienceLevel))
-            return BadRequest(new { error = "experience_level 必须是 beginner / intermediate / advanced" });
+            return BadRequest(new { error = "experience_level must be one of: beginner / intermediate / advanced" });
         if (!Goals.Contains(goal))
-            return BadRequest(new { error = "goal 必须是 muscle_gain / fat_loss / strength" });
+            return BadRequest(new { error = "goal must be one of: muscle_gain / fat_loss / strength" });
         var gender = string.IsNullOrWhiteSpace(req.Gender) ? "not_specified" : req.Gender.Trim().ToLowerInvariant();
         if (!Genders.Contains(gender))
-            return BadRequest(new { error = "gender 必须是 male / female / not_specified" });
+            return BadRequest(new { error = "gender must be one of: male / female / not_specified" });
         if (req.HeightCm.HasValue && req.HeightCm <= 0)
-            return BadRequest(new { error = "height_cm 必须大于 0，或传 null" });
+            return BadRequest(new { error = "height_cm must be greater than 0 or null" });
         if (req.WeightKg.HasValue && req.WeightKg <= 0)
-            return BadRequest(new { error = "weight_kg 必须大于 0，或传 null" });
-
-        var language = string.IsNullOrWhiteSpace(req.Language) ? "system" : req.Language.Trim();
-        if (!Languages.Contains(language))
-            return BadRequest(new { error = "language 必须是 system / zh-CN / en-US" });
+            return BadRequest(new { error = "weight_kg must be greater than 0 or null" });
 
         var userId = this.CurrentUserId();
         var profile = await _db.UserProfiles.FirstOrDefaultAsync(x => x.UserId == userId, ct);
@@ -60,7 +55,6 @@ public class ProfileController : ControllerBase
         profile.Gender = gender;
         profile.HeightCm = req.HeightCm;
         profile.WeightKg = req.WeightKg;
-        profile.Language = language;
 
         await _db.SaveChangesAsync(ct);
 

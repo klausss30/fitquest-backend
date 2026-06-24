@@ -50,7 +50,7 @@ public class DeepSeekService : IAiService
 
     public async Task<AiPlanResult> GeneratePlanAsync(AiPlanPromptContext context, CancellationToken ct = default)
     {
-        var systemPrompt = BuildGenerateSystemPrompt(context.OutputLanguage);
+        var systemPrompt = BuildGenerateSystemPrompt();
         var userMessage = BuildGenerateUserMessage(context);
 
         var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.5, 3200, ct);
@@ -72,7 +72,7 @@ public class DeepSeekService : IAiService
 
     public async Task<AiPlanResult> AdjustPlanAsync(AiAdjustPromptContext context, CancellationToken ct = default)
     {
-        var systemPrompt = BuildAdjustSystemPrompt(context.OutputLanguage);
+        var systemPrompt = BuildAdjustSystemPrompt();
         var userMessage = BuildAdjustUserMessage(context);
 
         var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.5, 3200, ct);
@@ -157,7 +157,7 @@ public class DeepSeekService : IAiService
 
     public async Task<AiNutritionResult> GenerateNutritionAsync(AiNutritionPromptContext context, CancellationToken ct = default)
     {
-        var systemPrompt = BuildNutritionSystemPrompt(context.OutputLanguage);
+        var systemPrompt = BuildNutritionSystemPrompt();
         var userMessage  = BuildNutritionUserMessage(context);
 
         var (promptSnapshot, content) = await CompleteJsonAsync(systemPrompt, userMessage, 0.4, 2400, ct);
@@ -178,30 +178,29 @@ public class DeepSeekService : IAiService
 
     // Prompt builders
 
-    private static string BuildGenerateSystemPrompt(string outputLanguage) => $$"""
-        你是一位专业、热情、有感染力的 AI 私人教练 Agent。你的任务是：
-        1. 先分析用户的目标、当日状态、风险和训练历史，完成多步推理
-        2. 基于推理结果，生成今日训练计划
-        {{BuildCoachTonePrompt(outputLanguage)}}
+    private const string JsonOnlyRule = "Return only one valid JSON object. Do not use Markdown, code fences, or extra text. All text fields must be in English.";
 
-        你必须只返回一个合法 JSON object。不要返回 Markdown，不要返回解释文字，不要使用代码块。
-        输出语言必须是：{{DescribeLanguage(outputLanguage)}}。
-        不允许中英混杂。所有文字字段必须全部使用目标语言。
+    private const string CoachToneRule = """
+        Coaching style:
+        - Warm, energetic, specific, and practical, like a supportive personal trainer.
+        - Explain the training logic without empty hype.
+        - Avoid shame, fear, guilt, drill-sergeant language, or exaggerated phrases.
+        """;
 
-        返回 JSON 必须严格符合以下结构：
+    private const string PlanSchema = """
         {
           "reasoning": {
             "goalAnalysis": {
               "primaryGoal": "string",
               "secondaryGoal": "string | null",
-              "note": "string（1句，说明目标对今日训练的影响）"
+              "note": "string (1 sentence explaining how the goal affects today's training)"
             },
-            "recoveryAnalysis": null 或 {
+            "recoveryAnalysis": null or {
               "sleepHours": number,
               "energyLevel": number,
               "stressLevel": number,
               "recoveryScore": number,
-              "summary": "string（1句，对当前恢复状态的判断）"
+              "summary": "string (1 sentence about current recovery)"
             },
             "riskAssessment": {
               "level": "low | moderate | high",
@@ -210,12 +209,12 @@ public class DeepSeekService : IAiService
             "historyAnalysis": {
               "sessionsLast7Days": number,
               "lastMuscleGroup": "string | null",
-              "summary": "string（1句，描述最近训练规律）"
+              "summary": "string (1 sentence about recent training pattern)"
             },
             "decision": {
               "muscleGroup": "string",
-              "action": "string（1句，今日训练方向）",
-              "rationale": "string（1句，解释为什么这样决定）"
+              "action": "string (1 sentence with today's training direction)",
+              "rationale": "string (1 sentence explaining the decision)"
             }
           },
           "muscleGroup": "legs | chest | back | shoulders | arms | full_body",
@@ -234,52 +233,42 @@ public class DeepSeekService : IAiService
             }
           ]
         }
+        """;
 
-        reasoning 字段规则：
-        - 如果 request.todayCheckIn 为 null，recoveryAnalysis 必须为 null
-        - 如果 request.todayCheckIn 不为 null，recoveryAnalysis 必须填写，使用 checkIn 的数据
-        - riskAssessment.level 必须是 low / moderate / high 之一
-        - riskAssessment.factors 是 1-3 条简短的风险或利好因素（目标语言）
-        - historyAnalysis.sessionsLast7Days 从 recentSessions 中统计最近7天的数量
-        - decision.muscleGroup 必须和最终 muscleGroup 一致
+    private const string PlanRules = """
+        Plan rules:
+        - muscleGroup: legs, chest, back, shoulders, arms, or full_body.
+        - category: warmup, main, accessory, finisher, cooldown. Return exercises in that order.
+        - unit: kg, lb, or null. sets and reps must be positive integers; use sets=1 and reps=1 for timed mobility, stretching, warmups, or cooldowns and explain timing/purpose in rationale.
+        - Do not return id, sessionId, sortOrder, calories, or source.
+        - Include 5-8 exercises: at least 1 warmup, exactly 1 main, 2-3 accessory, 0-2 finisher, and at least 1 cooldown.
+        - durationMinutes should be close to the requested duration.
+        - Use request.selectedMuscleGroup exactly as muscleGroup. If muscleGroupSource is auto_selected_by_backend, trust the backend choice.
+        - If completedMuscleGroupsToday includes legs, avoid legs unless request.selectedMuscleGroup is legs.
+        - Match experience level: beginner = simple/conservative, intermediate = moderate progressive overload, advanced = challenging but reasonable.
+        - Match goal: muscle_gain = 6-12 reps and enough volume; fat_loss = denser strength work without becoming pure cardio; strength = lower reps and heavier main lift.
+        - Gender may inform recovery or sizing but never use stereotypes; not_specified means general programming.
+        - Use weightKg and recent history for starting loads. Prefer recent same-muscle or related exercise loads; avoid sudden jumps. Without weightKg, choose conservative beginner loads.
+        - If heightCm and weightKg exist, use them to estimate body size and training density.
+        - dayType should sound like a real trainer's title.
+        - aiNote: 1-2 specific, encouraging sentences that explain the plan logic.
+        - rationale: one sentence per exercise explaining why it is included.
+        """;
 
-        规则：
-        - muscleGroup 必须是以下值之一：legs, chest, back, shoulders, arms, full_body
-        - category 必须是以下值之一：warmup, main, accessory, finisher, cooldown
-        - unit 只能是 kg, lb 或 null
-        - sets 和 reps 必须是大于 0 的整数，绝对不能返回 0
-        - 如果动作是计时动作、拉伸、热身或放松，也必须设置 sets 至少为 1、reps 为 1，并在 rationale 中说明时长或目的
-        - 不要返回 id、sessionId、sortOrder、calories、source
-        - exercises 必须包含 5 到 8 个动作
-        - exercises 字段必须存在，必须是数组，不能是 null，不能省略
-        - 计划必须按 warmup -> main -> accessory -> finisher -> cooldown 顺序返回
-        - warmup 至少 1 个动作
-        - main 动作必须正好 1 个
-        - accessory 动作必须 2 到 3 个
-        - finisher 动作 0 到 2 个，可选
-        - cooldown 至少 1 个动作
-        - durationMinutes 应接近用户请求的训练时长
-        - 必须使用 request.selectedMuscleGroup 作为 muscleGroup，不要自行改成其他肌群
-        - 如果 request.muscleGroupSource 是 auto_selected_by_backend，说明后端已经根据当天完成训练和最近历史选好了更合理肌群
-        - 如果 completedMuscleGroupsToday 包含 legs，避免生成腿部计划，除非 request.selectedMuscleGroup 明确是 legs
-        - 如果用户是 beginner，避免复杂高风险动作，重量保守
-        - 如果用户是 intermediate，可以安排中等训练量和渐进超负荷
-        - 如果用户是 advanced，可以安排更高强度，但仍需合理
-        - 如果目标是 muscle_gain，优先 6-12 次区间和足够训练量
-        - 如果目标是 fat_loss，控制休息时间，训练密度略高，但不要把力量训练变成纯有氧
-        - 如果目标是 strength，主项优先较低 reps 和更高重量
-        - gender 可作为训练量、动作选择、恢复建议的参考因素之一，但不要做刻板化判断
-        - 如果 gender 是 not_specified，按通用方案处理
-        - 如果用户提供了 weightKg，按以下区间推荐起始重量（仅针对有负重的动作）：
-          · 大肌群复合动作（卧推/深蹲/硬拉/划船等）：beginner 约体重的40-60%，intermediate 70-100%，advanced 100%+
-          · 小肌群孤立动作（侧平举/飞鸟/弯举等）：beginner 约体重的5-10%，intermediate 10-20%，advanced 20%+
-          · 如有历史记录，以历史重量为准，优先于上述比例
-        - 如果没有 weightKg，使用保守入门重量
-        - 如果有历史训练记录，参考最近同肌群或相关动作的重量，不要突然大幅增加
-        - 如果同时有 heightCm 和 weightKg，可据此估算体型，调整动作选择与训练密度
-        - dayType 要像真实私人教练给今天训练起的标题
-        - aiNote 使用目标语言，1-2 句，积极、有感染力、亲切，但必须具体说明训练逻辑
-        - rationale 使用目标语言，每个动作 1 句，像教练在解释为什么安排这个动作
+    private static string BuildGenerateSystemPrompt() => $$"""
+        You are an expert AI personal trainer. Analyze the user's goal, readiness, risk, and recent history, then generate today's workout plan.
+        {{CoachToneRule}}
+        {{JsonOnlyRule}}
+
+        JSON schema:
+        {{PlanSchema}}
+
+        Reasoning rules:
+        - If todayCheckIn is null, recoveryAnalysis must be null; otherwise use that check-in data.
+        - riskAssessment.level must be low, moderate, or high; factors must contain 1-3 concise risk or positive factors.
+        - historyAnalysis.sessionsLast7Days is counted from recentSessions over the last 7 days.
+        - decision.muscleGroup must match the final muscleGroup.
+        {{PlanRules}}
         """;
 
     private static string BuildGenerateUserMessage(AiPlanPromptContext context)
@@ -302,7 +291,6 @@ public class DeepSeekService : IAiService
                 selectedMuscleGroup = context.SelectedMuscleGroup,
                 muscleGroupSource = context.MuscleGroupSource,
                 requestedDurationMinutes = context.DurationMinutes,
-                outputLanguage = context.OutputLanguage,
             },
             todayCheckIn = context.TodayCheckIn is null ? null : new
             {
@@ -319,17 +307,13 @@ public class DeepSeekService : IAiService
         }, JsonOpts);
     }
 
-    private static string BuildAdjustSystemPrompt(string outputLanguage) => $$"""
-        你是一位专业、热情、有感染力的 AI 私人教练。用户想调整一份已经生成的训练计划。
-        你必须基于原计划和用户调整需求，返回一份完整的新训练计划 JSON。后端会用新计划替换旧计划。
-        {{BuildCoachTonePrompt(outputLanguage)}}
-        调整计划时要支持用户当前状态。如果用户 low_energy 或 short_time，不要让用户觉得自己失败了。强调调整是聪明训练的一部分，并给出更现实可完成的版本。
+    private static string BuildAdjustSystemPrompt() => $$"""
+        You are an expert AI personal trainer. The user wants to adjust an existing workout. Return a complete replacement plan based on the original plan and the requested adjustment.
+        {{CoachToneRule}}
+        If the user reports low_energy or short_time, frame the adjustment as smart training and make the plan more realistic.
+        {{JsonOnlyRule}}
 
-        你必须只返回一个合法 JSON object。不要返回 Markdown，不要返回解释文字，不要使用代码块。
-        输出语言必须是：{{DescribeLanguage(outputLanguage)}}。
-        不允许中英混杂。dayType、aiNote、exerciseName、rationale 必须全部使用目标语言。
-
-        返回 JSON 必须严格符合以下结构：
+        JSON schema:
         {
           "muscleGroup": "legs | chest | back | shoulders | arms | full_body",
           "dayType": "string",
@@ -348,34 +332,19 @@ public class DeepSeekService : IAiService
           ]
         }
 
-        调整规则：
-        - 保留原计划的主要训练目标，除非用户明确要求更换
-        - short_time：减少动作数量或组数，保留 main 和最关键 accessory
-        - low_energy：降低重量或减少组数，避免高疲劳动作
-        - high_intensity：可以增加组数或略微增加重量，但不要超过合理渐进幅度
-        - swap：替换动作，但保持训练目标和强度相近
-        - custom：优先满足用户 customMessage
-        - 不要返回 id、sessionId、sortOrder、calories、source
-        - muscleGroup 必须是以下值之一：legs, chest, back, shoulders, arms, full_body
-        - category 必须是以下值之一：warmup, main, accessory, finisher, cooldown
-        - unit 只能是 kg, lb 或 null
-        - sets 和 reps 必须是大于 0 的整数，绝对不能返回 0
-        - 如果动作是计时动作、拉伸、热身或放松，也必须设置 sets 至少为 1、reps 为 1，并在 rationale 中说明时长或目的
-        - exercises 必须包含 5 到 8 个动作
-        - exercises 字段必须存在，必须是数组，不能是 null，不能省略
-        - 计划必须按 warmup -> main -> accessory -> finisher -> cooldown 顺序返回
-        - warmup 至少 1 个动作
-        - main 动作至少 1 个
-        - accessory 至少 1 个动作
-        - cooldown 至少 1 个动作
-        - dayType 要像真实私人教练给调整后训练起的标题
-        - aiNote 使用目标语言，1-2 句，积极、有感染力、亲切，但必须具体说明调整逻辑
-        - rationale 使用目标语言，每个动作 1 句，像教练在解释为什么保留、减少或替换这个动作
+        Adjustment rules:
+        - Keep the original training goal unless the user clearly asks to change it.
+        - short_time: reduce exercise count or sets while keeping main and the most valuable accessory work.
+        - low_energy: reduce load or sets and avoid high-fatigue choices.
+        - high_intensity: add sets or slightly increase load within reasonable progression.
+        - swap: replace exercises while keeping goal and intensity similar.
+        - custom: prioritize customMessage.
+        {{PlanRules}}
         """;
 
     private static string BuildAdjustUserMessage(AiAdjustPromptContext context)
     {
-        var adjustDesc = DescribeAdjustment(context.AdjustType, context.CustomMessage, context.OutputLanguage);
+        var adjustDesc = DescribeAdjustment(context.AdjustType, context.CustomMessage);
 
         return JsonSerializer.Serialize(new
         {
@@ -394,75 +363,44 @@ public class DeepSeekService : IAiService
                 adjustType = context.AdjustType,
                 adjustDescription = adjustDesc,
                 customMessage = context.CustomMessage,
-                outputLanguage = context.OutputLanguage,
             },
             currentSession = ToPromptSession(context.CurrentSession),
             recentSessions = context.RecentSessions.Select(ToPromptSession),
         }, JsonOpts);
     }
 
-    private static string BuildNutritionSystemPrompt(string outputLanguage) => $$"""
-        你是一位专业 AI 营养教练，也是多 Agent 系统的一部分。你会接收来自训练 Agent 的当日训练计划数据，并将其整合到营养建议中。
-        根据用户的体型数据、训练目标、当日状态、最近训练频率，以及今日训练计划（如有），给出个性化每日营养建议。
-        你必须只返回一个合法 JSON object。不要返回 Markdown，不要返回解释文字，不要使用代码块。
-        输出语言必须是：{{DescribeLanguage(outputLanguage)}}。不允许中英混杂。
+    private static string BuildNutritionSystemPrompt() => $$"""
+        You are an expert AI nutrition coach. Use the user's body data, goal, readiness, recent training frequency, and today's workout if present to produce daily nutrition guidance.
+        {{JsonOnlyRule}}
 
-        返回 JSON 必须严格符合以下结构：
+        JSON schema:
         {
           "dailyCalories": number,
           "proteinG": number,
           "carbsG": number,
           "fatG": number,
-          "goalNote": "string（1-2 句，说明该方案如何支持用户目标）",
+          "goalNote": "string (1-2 sentences explaining how this supports the user's goal)",
           "mealSuggestions": [
             {
-              "meal": "string（早餐/午餐/晚餐/加餐 or Breakfast/Lunch/Dinner/Snack）",
-              "suggestion": "string（具体食物搭配，1-2 句）",
+              "meal": "Breakfast | Lunch | Dinner | Snack",
+              "suggestion": "string (specific food pairing, 1-2 sentences)",
               "caloriesApprox": number
             }
           ],
-          "reasoning": "string（1-2 句，说明热量和宏量营养素的推算依据）"
+          "reasoning": "string (1-2 sentences explaining calorie and macro calculation)"
         }
 
-        热量计算步骤（必须按此顺序执行）：
-        1. 确定体重：优先使用 weightKg，否则用 70kg
-        2. 确定身高：优先使用 heightCm，否则用 170cm
-        3. 使用 Mifflin-St Jeor 公式计算 BMR（年龄默认 28）：
-           · 男性：BMR = 10 × weightKg + 6.25 × heightCm - 5 × 28 + 5
-           · 女性：BMR = 10 × weightKg + 6.25 × heightCm - 5 × 28 - 161
-           · 未指定性别：使用男女平均值
-        4. 根据 sessionsLast7Days 确定活动系数（TDEE = BMR × 系数）：
-           · 0-1次：× 1.2（久坐）
-           · 2-3次：× 1.375（轻度活跃）
-           · 4-5次：× 1.55（中度活跃）
-           · 6-7次：× 1.725（高度活跃）
-        5. 根据目标调整 dailyCalories：
-           · fat_loss：TDEE × 0.80（20% 赤字）
-           · muscle_gain：TDEE × 1.10（10% 盈余）
-           · strength：TDEE × 1.00（维持）
-        6. 四舍五入到最近的 50kcal
-
-        宏量营养素分配：
-        - fat_loss：蛋白质 2.0g/kg，脂肪 25% 热量，其余为碳水
-        - muscle_gain：蛋白质 2.2g/kg，脂肪 25% 热量，其余为碳水
-        - strength：蛋白质 2.0g/kg，脂肪 30% 热量，其余为碳水
-        - 蛋白质 1g = 4 kcal，碳水 1g = 4 kcal，脂肪 1g = 9 kcal
-
-        其他规则：
-        - dailyCalories 必须是正整数，且与 proteinG×4 + carbsG×4 + fatG×9 大致吻合（±5%）
-        - mealSuggestions 必须包含 3 到 4 条（早/午/晚/加餐）
-        - 每条 caloriesApprox 之和应接近 dailyCalories
-        - 训练频率高（≥4次/7天）：碳水可适当上浮 5-10%
-        - 今日状态差（energy≤3 或 stress≥8）：建议易消化食物，不要高脂高纤维
-        - 不要列购物清单，不要给精确菜谱，建议具体但实用的食物搭配
-
-        多 Agent 协同规则（todayTrainingPlan 字段）：
-        - 若 todayTrainingPlan 存在，说明训练 Agent 已生成今日计划，需将其整合进营养方案
-        - legs / full_body 训练日：碳水上浮 8-12%，蛋白质不变，优先训练后补充碳水
-        - chest / back / shoulders：蛋白质上浮 0.1g/kg，脂肪维持
-        - arms：保持标准方案，在 goalNote 中提示肌肉合成需要的氨基酸来源
-        - 训练时长 > 60 分钟：建议加 1 条训练后加餐（蛋白质 + 快碳水）
-        - 在 goalNote 中明确提及今日训练计划对营养方案的影响
+        Nutrition rules:
+        - Use weightKg or 70kg, heightCm or 170cm, age 28, and Mifflin-St Jeor BMR. For not_specified gender, average male and female BMR.
+        - Activity factor by sessionsLast7Days: 0-1 = 1.2, 2-3 = 1.375, 4-5 = 1.55, 6-7 = 1.725.
+        - Goal calories: fat_loss = TDEE x 0.80, muscle_gain = TDEE x 1.10, strength = TDEE x 1.00. Round to nearest 50 kcal.
+        - Macros: fat_loss 2.0g protein/kg and 25% fat; muscle_gain 2.2g protein/kg and 25% fat; strength 2.0g protein/kg and 30% fat. Remaining calories are carbs. Protein/carbs = 4 kcal/g, fat = 9 kcal/g.
+        - dailyCalories must be positive and roughly match macro calories within 5%.
+        - Return 3-4 meals named Breakfast, Lunch, Dinner, and optional Snack. caloriesApprox totals should be close to dailyCalories.
+        - If training frequency is high (4+ sessions/7 days), carbs may rise 5-10%.
+        - If energyLevel <= 3 or stressLevel >= 8, suggest easier-to-digest foods and avoid very high fat/fiber meals.
+        - Do not provide a shopping list or exact recipe; give concrete, practical food pairings.
+        - If todayTrainingPlan exists, reflect it in goalNote: legs/full_body raises carbs 8-12%; chest/back/shoulders raises protein by 0.1g/kg; arms keeps standard macros and highlights amino acid support. If durationMinutes > 60, include a post-workout snack with protein and fast carbs.
         """;
 
     private static string BuildNutritionUserMessage(AiNutritionPromptContext context)
@@ -493,7 +431,6 @@ public class DeepSeekService : IAiService
                 durationMinutes = context.TodayPlan.DurationMinutes,
                 aiNote          = context.TodayPlan.AiNote,
             },
-            outputLanguage = context.OutputLanguage,
         }, JsonOpts);
     }
 
@@ -657,54 +594,8 @@ public class DeepSeekService : IAiService
         return true;
     }
 
-    private static string DescribeLanguage(string outputLanguage)
-        => outputLanguage == "zh"
-            ? "中文。必须返回中文标题、中文说明、中文动作名称"
-            : "English. All titles, notes, exercise names, and rationales must be in English";
-
-    private static string BuildCoachTonePrompt(string outputLanguage)
+    private static string DescribeAdjustment(string adjustType, string? customMessage)
     {
-        if (outputLanguage == "zh")
-        {
-            return """
-                教练风格：
-                - 积极、亲切、直接、有陪伴感，像一个真正站在用户身边的私人教练
-                - 语言要有激情和感染力，让用户感觉“今天可以开始动起来”
-                - 鼓励要具体，必须和训练安排有关，不能空喊口号
-                - 不羞辱用户，不责备用户，不制造焦虑，不使用恐吓式语言
-                - 不要油腻，不要过度鸡血，不要使用“燃爆了”“狠狠练爆”“榨干自己”等夸张词
-                - 避免机械、冷冰冰的说明
-                - 不要中英混杂
-                """;
-        }
-
-        return """
-            Coaching style:
-            - Be energetic, warm, direct, and practical, like a personal trainer who is on the user's side
-            - Make the user feel capable and ready to train
-            - Motivation must be specific and connected to the training plan, not empty hype
-            - Avoid shame, guilt, fear-based language, or drill-sergeant aggression
-            - Do not use exaggerated hype like "destroy yourself", "crush your body", or similar language
-            - Avoid cold, mechanical explanations
-            - Do not mix Chinese and English
-            """;
-    }
-
-    private static string DescribeAdjustment(string adjustType, string? customMessage, string outputLanguage)
-    {
-        if (outputLanguage == "zh")
-        {
-            return adjustType switch
-            {
-                "low_energy" => "用户今天状态偏低，需要一版更温和但仍然有效的训练",
-                "short_time" => "用户今天时间有限，需要保留关键训练效果的精简版本",
-                "swap" => "用户想换一套不同动作，但仍希望保持训练目标",
-                "high_intensity" => "用户今天状态很好，希望训练更有挑战但仍保持合理",
-                "custom" => customMessage ?? "自定义调整",
-                _ => customMessage ?? "调整计划",
-            };
-        }
-
         return adjustType switch
         {
             "low_energy" => "The user has lower energy today and needs a gentler plan that still feels useful.",

@@ -306,7 +306,6 @@ static void EnsurePostgresSchema(AppDbContext db)
             gender character varying(30) NOT NULL DEFAULT 'not_specified',
             height_cm double precision NULL,
             weight_kg double precision NULL,
-            language character varying(20) NOT NULL DEFAULT 'system',
             created_at timestamp with time zone NOT NULL,
             updated_at timestamp with time zone NOT NULL
         );
@@ -391,7 +390,6 @@ static void EnsureProfileCompatibilityColumns(AppDbContext db)
 
     try
     {
-        EnsureUserProfileColumn(connection, "language", "TEXT NOT NULL DEFAULT 'system'");
         EnsureUserProfileColumn(connection, "gender", "TEXT NOT NULL DEFAULT 'not_specified'");
         EnsureDailyCheckInsTable(connection);
     }

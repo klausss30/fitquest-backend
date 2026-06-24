@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FitQuest.Api.Data;
 using FitQuest.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,11 +12,6 @@ namespace FitQuest.Api.Controllers;
 [Route("api/nutrition")]
 public class NutritionController : ControllerBase
 {
-    private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
-
     private readonly AppDbContext _db;
     private readonly IAiService   _ai;
     private readonly ILogger<NutritionController> _logger;
@@ -65,14 +59,13 @@ public class NutritionController : ControllerBase
                 profile.Gender,
                 profile.HeightCm,
                 profile.WeightKg),
-            ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), profile?.Language),
             todayCheckIn is null ? null : new CheckInSnapshot(
                 todayCheckIn.SleepHours,
                 todayCheckIn.EnergyLevel,
                 todayCheckIn.StressLevel,
                 todayCheckIn.WeightKg,
                 todayCheckIn.RecoveryScore,
-                DescribeRecoveryStatus(todayCheckIn.RecoveryScore),
+                ControllerHelpers.DescribeRecoveryStatus(todayCheckIn.RecoveryScore),
                 todayCheckIn.Notes),
             sessionsLast7,
             todaySession is null ? null : new TodayPlanSnapshot(
@@ -80,8 +73,6 @@ public class NutritionController : ControllerBase
                 todaySession.DayType,
                 todaySession.DurationMinutes,
                 todaySession.AiNote));
-
-        var fallbackPrompt = JsonSerializer.Serialize(context, SnapshotJson);
 
         try
         {
@@ -111,9 +102,4 @@ public class NutritionController : ControllerBase
         }
     }
 
-    private static string DescribeRecoveryStatus(int score) =>
-        ControllerHelpers.DescribeRecoveryStatus(score);
-
-    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage) =>
-        ControllerHelpers.ResolveOutputLanguage(acceptLanguage, profileLanguage);
 }

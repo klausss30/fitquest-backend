@@ -27,7 +27,6 @@ public record AiNutritionResult(
 public record AiNutritionPromptContext(
     UserSnapshot User,
     ProfileSnapshot? Profile,
-    string OutputLanguage,
     CheckInSnapshot? TodayCheckIn,
     int SessionsLast7Days,
     TodayPlanSnapshot? TodayPlan = null);
@@ -65,7 +64,6 @@ public record AiPlanPromptContext(
     string SelectedMuscleGroup,
     string MuscleGroupSource,
     int DurationMinutes,
-    string OutputLanguage,
     List<string> CompletedMuscleGroupsToday,
     List<SessionSnapshot> RecentSessions,
     CheckInSnapshot? TodayCheckIn = null);
@@ -75,7 +73,6 @@ public record AiAdjustPromptContext(
     ProfileSnapshot? Profile,
     string AdjustType,
     string? CustomMessage,
-    string OutputLanguage,
     SessionSnapshot CurrentSession,
     List<SessionSnapshot> RecentSessions);
 

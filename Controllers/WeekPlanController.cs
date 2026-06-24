@@ -50,8 +50,7 @@ public class WeekPlanController : ControllerBase
             .ThenBy(x => x.Id)
             .ToListAsync(ct);
 
-        var language = ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), user.Profile?.Language);
-        var days = BuildWeekPlan(user.Profile, sessions, weekStart, weekEnd, responseStart, language);
+        var days = BuildWeekPlan(user.Profile, sessions, weekStart, weekEnd, responseStart);
 
         return Ok(new
         {
@@ -65,8 +64,7 @@ public class WeekPlanController : ControllerBase
         List<TrainingSession> sessions,
         DateOnly weekStart,
         DateOnly weekEnd,
-        DateOnly responseStart,
-        string language)
+        DateOnly responseStart)
     {
         var result = new List<WeekPlanDayDto>();
         var completedThisWeek = sessions
@@ -78,10 +76,6 @@ public class WeekPlanController : ControllerBase
 
         var weeklyTarget = DetermineWeeklyTarget(profile);
         var plannedTrainingDays = completedThisWeek.Count;
-        var lastMuscleGroupByDate = sessions
-            .GroupBy(x => x.MuscleGroup)
-            .ToDictionary(x => x.Key, x => x.Max(s => s.SessionDate));
-
         for (var date = responseStart; date < weekEnd; date = date.AddDays(1))
         {
             if (completedByDate.TryGetValue(date, out var completedSession))
@@ -90,9 +84,7 @@ public class WeekPlanController : ControllerBase
                     date,
                     completedSession.MuscleGroup,
                     completedSession.DayType,
-                    Text(language,
-                        "这天已经有完成记录，周安排以你的实际训练为准。",
-                        "You already completed a session on this day, so the plan uses your actual training record.")));
+                    "You already completed a session on this day, so the plan uses your actual training record."));
                 continue;
             }
 
@@ -102,14 +94,13 @@ public class WeekPlanController : ControllerBase
 
             if (!shouldTrain)
             {
-                result.Add(RestDay(date, language));
+                result.Add(RestDay(date));
                 continue;
             }
 
             var muscleGroup = ChooseMuscleGroup(sessions, result, date);
-            result.Add(TrainingDay(date, muscleGroup, profile, language));
+            result.Add(TrainingDay(date, muscleGroup, profile));
             plannedTrainingDays++;
-            lastMuscleGroupByDate[muscleGroup] = date;
         }
 
         return result;
@@ -182,48 +173,25 @@ public class WeekPlanController : ControllerBase
             .Group;
     }
 
-    private static WeekPlanDayDto TrainingDay(DateOnly date, string muscleGroup, UserProfile? profile, string language)
+    private static WeekPlanDayDto TrainingDay(DateOnly date, string muscleGroup, UserProfile? profile)
     {
-        var dayType = GetDayType(muscleGroup, profile?.Goal, language);
-        var reason = GetTrainingReason(muscleGroup, profile, language);
+        var dayType = GetDayType(muscleGroup, profile?.Goal);
+        var reason = GetTrainingReason(muscleGroup, profile);
         return new WeekPlanDayDto(date, muscleGroup, dayType, reason);
     }
 
-    private static WeekPlanDayDto RestDay(DateOnly date, string language)
+    private static WeekPlanDayDto RestDay(DateOnly date)
     {
         return new WeekPlanDayDto(
             date,
             "rest",
-            Text(language, "恢复日", "Rest Day"),
-            Text(language,
-                "这天安排恢复，让身体把前面的训练吸收掉，后面的训练质量会更稳。",
-                "This day is set aside for recovery so your body can absorb the work and keep the next sessions strong."));
+            "Rest Day",
+            "This day is set aside for recovery so your body can absorb the work and keep the next sessions strong.");
     }
 
-    private static string GetDayType(string muscleGroup, string? goal, string language)
+    private static string GetDayType(string muscleGroup, string? goal)
     {
-        if (language == "zh")
-        {
-            var focus = goal switch
-            {
-                "strength" => "力量日",
-                "fat_loss" => "高效训练日",
-                _ => "稳步提升日",
-            };
-
-            return muscleGroup switch
-            {
-                "legs" => $"腿部 · {focus}",
-                "chest" => $"胸部 · {focus}",
-                "back" => $"背部 · {focus}",
-                "shoulders" => $"肩部 · {focus}",
-                "arms" => $"手臂 · {focus}",
-                "full_body" => $"全身 · {focus}",
-                _ => "恢复日",
-            };
-        }
-
-        var enFocus = goal switch
+        var focus = goal switch
         {
             "strength" => "Strength Day",
             "fat_loss" => "Efficient Training Day",
@@ -232,33 +200,18 @@ public class WeekPlanController : ControllerBase
 
         return muscleGroup switch
         {
-            "legs" => $"Lower Body · {enFocus}",
-            "chest" => $"Chest · {enFocus}",
-            "back" => $"Back · {enFocus}",
-            "shoulders" => $"Shoulders · {enFocus}",
-            "arms" => $"Arms · {enFocus}",
-            "full_body" => $"Full Body · {enFocus}",
+            "legs" => $"Lower Body - {focus}",
+            "chest" => $"Chest - {focus}",
+            "back" => $"Back - {focus}",
+            "shoulders" => $"Shoulders - {focus}",
+            "arms" => $"Arms - {focus}",
+            "full_body" => $"Full Body - {focus}",
             _ => "Rest Day",
         };
     }
 
-    private static string GetTrainingReason(string muscleGroup, UserProfile? profile, string language)
+    private static string GetTrainingReason(string muscleGroup, UserProfile? profile)
     {
-        if (language == "zh")
-        {
-            var goalText = profile?.Goal switch
-            {
-                "strength" => "结合你的力量目标，今天适合把重点放在可控强度和动作质量上。",
-                "fat_loss" => "结合你的减脂目标，今天安排更高效的训练方向，同时保留恢复空间。",
-                "muscle_gain" => "结合你的增肌目标，今天安排足够刺激但不过度堆量的训练方向。",
-                _ => "根据你的训练画像和最近记录，今天安排这个方向更利于持续推进。",
-            };
-
-            return muscleGroup == "full_body"
-                ? $"{goalText} 全身训练能帮你稳稳进入节奏。"
-                : $"{goalText} 这个部位近期恢复压力更合理，适合安排在这一天。";
-        }
-
         var goalReason = profile?.Goal switch
         {
             "strength" => "Based on your strength goal, today should focus on controlled intensity and clean movement quality.",
@@ -281,12 +234,6 @@ public class WeekPlanController : ControllerBase
 
     private static DateOnly StartOfWeek(DateOnly date) =>
         ControllerHelpers.StartOfWeek(date);
-
-    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage) =>
-        ControllerHelpers.ResolveOutputLanguage(acceptLanguage, profileLanguage);
-
-    private static string Text(string language, string zh, string en)
-        => language == "zh" ? zh : en;
 
     private static int DefaultRank(string muscleGroup)
     {

@@ -11,8 +11,7 @@ public record ProfileDto(
     string Goal,
     string Gender,
     double? HeightCm,
-    double? WeightKg,
-    string Language);
+    double? WeightKg);
 
 public record TrainingSessionDto(
     int Id,
@@ -76,8 +75,7 @@ public record UpsertProfileRequest(
     string Goal,
     string? Gender,
     double? HeightCm,
-    double? WeightKg,
-    string? Language);
+    double? WeightKg);
 
 public record GeneratePlanRequest(
     DateOnly? SessionDate,
@@ -186,8 +184,7 @@ public static class ApiMapping
         profile.Goal,
         profile.Gender,
         profile.HeightCm,
-        profile.WeightKg,
-        profile.Language);
+        profile.WeightKg);
 
     public static TrainingSessionDto ToDto(this TrainingSession session) => new(
         session.Id,

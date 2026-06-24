@@ -38,7 +38,6 @@ public class AppDbContext : DbContext
             entity.Property(x => x.ExperienceLevel).HasMaxLength(40);
             entity.Property(x => x.Goal).HasMaxLength(40);
             entity.Property(x => x.Gender).HasMaxLength(30).HasDefaultValue("not_specified");
-            entity.Property(x => x.Language).HasMaxLength(20).HasDefaultValue("system");
         });
 
         modelBuilder.Entity<TrainingSession>(entity =>

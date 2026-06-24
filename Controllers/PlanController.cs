@@ -68,7 +68,6 @@ public class PlanController : ControllerBase
             selectedMuscleGroup,
             muscleGroup is null ? "auto_selected_by_backend" : "user_requested",
             durationMinutes,
-            ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), user.Profile?.Language),
             completedToday,
             recentSessions,
             todayCheckIn is null ? null : new CheckInSnapshot(
@@ -77,7 +76,7 @@ public class PlanController : ControllerBase
                 todayCheckIn.StressLevel,
                 todayCheckIn.WeightKg,
                 todayCheckIn.RecoveryScore,
-                DescribeRecoveryStatus(todayCheckIn.RecoveryScore),
+                ControllerHelpers.DescribeRecoveryStatus(todayCheckIn.RecoveryScore),
                 todayCheckIn.Notes));
 
         var fallbackPrompt = JsonSerializer.Serialize(context, SnapshotJson);
@@ -131,7 +130,6 @@ public class PlanController : ControllerBase
             user.Profile?.ToSnapshot(),
             (request.AdjustType ?? "").Trim().ToLowerInvariant(),
             customMessage,
-            ResolveOutputLanguage(Request.Headers.AcceptLanguage.ToString(), user.Profile?.Language),
             currentSnapshot,
             await LoadRecentSessions(userId, null, ct));
 
@@ -223,9 +221,6 @@ public class PlanController : ControllerBase
         };
     }
 
-    private static string DescribeRecoveryStatus(int score) =>
-        ControllerHelpers.DescribeRecoveryStatus(score);
-
     private static SessionSnapshot ToSnapshot(TemporaryPlanDto plan, List<TemporaryExerciseDto> exercises)
     {
         return new SessionSnapshot(
@@ -289,8 +284,6 @@ public class PlanController : ControllerBase
             .Group;
     }
 
-    private static string ResolveOutputLanguage(string? acceptLanguage, string? profileLanguage) =>
-        ControllerHelpers.ResolveOutputLanguage(acceptLanguage, profileLanguage);
 }
 
 file static class PlanControllerMapping

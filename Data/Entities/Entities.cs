@@ -34,7 +34,6 @@ public class UserProfile : ICreatedAt, IUpdatedAt
     public string Gender { get; set; } = "not_specified";
     public double? HeightCm { get; set; }
     public double? WeightKg { get; set; }
-    public string Language { get; set; } = "system";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
